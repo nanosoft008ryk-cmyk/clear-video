@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useEffect, useMemo } from "react";
 import { Download, Trash2, Archive } from "lucide-react";
 import JSZip from "jszip";
 import { useAppStore } from "@/store/app-store";
@@ -23,6 +24,23 @@ function ExportsPage() {
   const exports_ = useAppStore((s) => s.exports);
   const blobs = useAppStore((s) => s.exportBlobs);
   const remove = useAppStore((s) => s.removeExport);
+
+  // Create one object URL per export and clean up on unmount/change.
+  const urls = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const e of exports_) {
+      const b = blobs.get(e.id);
+      if (b) m.set(e.id, URL.createObjectURL(b));
+    }
+    return m;
+  }, [exports_, blobs]);
+
+  useEffect(
+    () => () => {
+      urls.forEach((u) => URL.revokeObjectURL(u));
+    },
+    [urls],
+  );
 
   const downloadOne = (id: string, name: string) => {
     const b = blobs.get(id);
@@ -66,18 +84,19 @@ function ExportsPage() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {exports_.map((e) => {
-              const blob = blobs.get(e.id);
-              const available = !!blob;
+              const url = urls.get(e.id);
+              const available = !!url;
               return (
                 <div
                   key={e.id}
                   className="overflow-hidden rounded-xl border border-border bg-card"
                 >
-                  {blob ? (
+                  {url ? (
                     <video
-                      src={URL.createObjectURL(blob)}
+                      src={url}
                       className="aspect-video w-full bg-black"
                       controls
+                      preload="metadata"
                     />
                   ) : (
                     <div className="grid aspect-video place-items-center bg-muted text-xs text-muted-foreground">
