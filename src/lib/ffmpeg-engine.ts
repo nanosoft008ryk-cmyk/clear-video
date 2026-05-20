@@ -1,27 +1,11 @@
 import { FFmpeg } from "@ffmpeg/ffmpeg";
-import { fetchFile, toBlobURL } from "@ffmpeg/util";
+import { fetchFile } from "@ffmpeg/util";
+import { getCoreBlobURLs } from "./ffmpeg-cache";
 
 let _ffmpeg: FFmpeg | null = null;
 let _loading: Promise<FFmpeg> | null = null;
 let _execChain: Promise<unknown> = Promise.resolve();
 const _logListeners = new Set<(msg: string) => void>();
-
-const CORE_BASES = [
-  "https://unpkg.com/@ffmpeg/core@0.12.10/dist/umd",
-  "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/umd",
-];
-
-async function loadWithFallback(path: string, mime: string): Promise<string> {
-  let lastErr: unknown;
-  for (const base of CORE_BASES) {
-    try {
-      return await toBlobURL(`${base}/${path}`, mime);
-    } catch (e) {
-      lastErr = e;
-    }
-  }
-  throw lastErr instanceof Error ? lastErr : new Error("FFmpeg core fetch failed");
-}
 
 export async function getFFmpeg(): Promise<FFmpeg> {
   if (_ffmpeg) return _ffmpeg;
@@ -37,15 +21,17 @@ export async function getFFmpeg(): Promise<FFmpeg> {
         }
       }
     });
-    const [coreURL, wasmURL] = await Promise.all([
-      loadWithFallback("ffmpeg-core.js", "text/javascript"),
-      loadWithFallback("ffmpeg-core.wasm", "application/wasm"),
-    ]);
+    const { coreURL, wasmURL } = await getCoreBlobURLs();
     await ff.load({ coreURL, wasmURL });
     _ffmpeg = ff;
     return ff;
   })();
-  return _loading;
+  try {
+    return await _loading;
+  } catch (e) {
+    _loading = null;
+    throw e;
+  }
 }
 
 /** Warm up FFmpeg in the background so first job starts instantly. */
@@ -268,8 +254,10 @@ export interface ProcessOptions {
   filename: string;
   preset?: "ultrafast" | "veryfast" | "fast" | "medium";
   crf?: number;
+  audioMode?: "aac" | "copy" | "none";
   onProgress?: (ratio: number) => void;
   onLog?: (msg: string) => void;
+  onCommand?: (cmd: string) => void;
 }
 
 export async function removeWatermark(
@@ -293,22 +281,30 @@ export async function removeWatermark(
     try {
       await ff.writeFile(inputName, await fetchFile(file));
       const filter = buildFilter(opts.region, opts.meta);
+      const audioMode = opts.audioMode ?? "aac";
+      const audioArgs: string[] =
+        audioMode === "none"
+          ? ["-an"]
+          : audioMode === "copy"
+            ? ["-map", "0:a?", "-c:a", "copy"]
+            : ["-map", "0:a?", "-c:a", "aac", "-b:a", "128k"];
       const args = [
         "-i", inputName,
         "-filter_complex", filter,
         "-map", "[outv]",
-        "-map", "0:a?",
+        ...audioArgs,
         "-c:v", "libx264",
         "-preset", opts.preset ?? "veryfast",
         "-crf", String(opts.crf ?? 20),
         "-tune", "fastdecode",
         "-pix_fmt", "yuv420p",
-        "-c:a", "aac",
-        "-b:a", "128k",
         "-movflags", "+faststart",
         "-y",
         outputName,
       ];
+      if (opts.onCommand) {
+        opts.onCommand(`ffmpeg ${args.map(shellQuote).join(" ")}`);
+      }
       await ff.exec(args);
       const data = (await ff.readFile(outputName)) as Uint8Array;
       const ab = new ArrayBuffer(data.byteLength);
@@ -322,4 +318,9 @@ export async function removeWatermark(
       if (opts.onLog) _logListeners.delete(opts.onLog);
     }
   });
+}
+
+function shellQuote(s: string): string {
+  if (/^[A-Za-z0-9_./:=+@\-\[\]]+$/.test(s)) return s;
+  return `'${s.replace(/'/g, "'\\''")}'`;
 }

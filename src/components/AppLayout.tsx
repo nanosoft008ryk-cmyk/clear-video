@@ -10,6 +10,7 @@ import {
 import { useEffect } from "react";
 import { startQueueRunner } from "@/lib/queue-runner";
 import { preloadFFmpeg } from "@/lib/ffmpeg-engine";
+import { useAppStore } from "@/store/app-store";
 
 const nav = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -21,6 +22,11 @@ const nav = [
 
 export function AppLayout() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const cache = useAppStore((s) => s.coreCache);
+  const pct =
+    cache.total > 0
+      ? Math.min(100, Math.round((cache.loaded / cache.total) * 100))
+      : 0;
 
   useEffect(() => {
     startQueueRunner();
@@ -65,6 +71,28 @@ export function AppLayout() {
             <div className="font-medium text-foreground">100% Local</div>
             <div className="mt-1">
               FFmpeg WASM processes videos in your browser. Nothing is uploaded.
+            </div>
+            <div className="mt-2 flex items-center gap-2">
+              <span
+                className={`inline-block h-1.5 w-1.5 rounded-full ${
+                  cache.status === "ready"
+                    ? "bg-[color:var(--success)]"
+                    : cache.status === "error"
+                      ? "bg-destructive"
+                      : "bg-accent animate-pulse"
+                }`}
+              />
+              <span className="text-[11px]">
+                {cache.status === "ready"
+                  ? "Engine ready · offline"
+                  : cache.status === "downloading"
+                    ? `Downloading core ${pct}%`
+                    : cache.status === "checking"
+                      ? "Checking cache…"
+                      : cache.status === "error"
+                        ? "Engine offline error"
+                        : "Engine idle"}
+              </span>
             </div>
           </div>
         </div>

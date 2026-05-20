@@ -248,11 +248,82 @@ function ProcessingPage() {
                     </div>
                   </div>
                   {isOpen && (
-                    <div className="mt-3 max-h-48 overflow-y-auto rounded-lg bg-[oklch(0.12_0.018_270)] p-3 font-mono text-[11px] leading-relaxed text-muted-foreground">
-                      {perJob.length === 0 ? (
-                        <div className="opacity-60">— no logs yet for this job —</div>
-                      ) : (
-                        perJob.slice(-100).map((l, i) => <div key={i}>{l}</div>)
+                    <div className="mt-3 space-y-2">
+                      {(j.attempts ?? 0) > 0 && (
+                        <div className="flex flex-wrap gap-3 text-[11px] text-muted-foreground">
+                          <span>
+                            Attempt:{" "}
+                            <span className="font-mono text-foreground">
+                              {j.attempts}
+                            </span>
+                          </span>
+                          {j.appliedPreset && (
+                            <span>
+                              Preset:{" "}
+                              <span className="font-mono text-foreground">
+                                {j.appliedPreset}
+                              </span>
+                            </span>
+                          )}
+                          {j.appliedCrf != null && (
+                            <span>
+                              CRF:{" "}
+                              <span className="font-mono text-foreground">
+                                {j.appliedCrf}
+                              </span>
+                            </span>
+                          )}
+                          {j.appliedAudio && (
+                            <span>
+                              Audio:{" "}
+                              <span className="font-mono text-foreground">
+                                {j.appliedAudio}
+                              </span>
+                            </span>
+                          )}
+                        </div>
+                      )}
+                      {j.command && (
+                        <div>
+                          <div className="mb-1 text-[11px] uppercase tracking-wide text-muted-foreground">
+                            Command
+                          </div>
+                          <pre className="overflow-x-auto rounded-lg bg-[oklch(0.12_0.018_270)] p-3 font-mono text-[11px] leading-relaxed text-foreground whitespace-pre-wrap break-all">
+                            {j.command}
+                          </pre>
+                        </div>
+                      )}
+                      {j.status === "error" && j.stderr && j.stderr.length > 0 && (
+                        <div>
+                          <div className="mb-1 text-[11px] uppercase tracking-wide text-destructive">
+                            FFmpeg stderr (last 60 lines)
+                          </div>
+                          <div className="max-h-40 overflow-y-auto rounded-lg border border-destructive/30 bg-[oklch(0.12_0.018_270)] p-3 font-mono text-[11px] leading-relaxed text-muted-foreground">
+                            {j.stderr.slice(-60).map((l, i) => (
+                              <div key={i}>{l}</div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      <div>
+                        <div className="mb-1 text-[11px] uppercase tracking-wide text-muted-foreground">
+                          Log
+                        </div>
+                        <div className="max-h-48 overflow-y-auto rounded-lg bg-[oklch(0.12_0.018_270)] p-3 font-mono text-[11px] leading-relaxed text-muted-foreground">
+                          {perJob.length === 0 ? (
+                            <div className="opacity-60">— no logs yet —</div>
+                          ) : (
+                            perJob.slice(-100).map((l, i) => <div key={i}>{l}</div>)
+                          )}
+                        </div>
+                      </div>
+                      {j.status === "error" && (
+                        <button
+                          onClick={() => retryJob(j.id)}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs hover:bg-secondary"
+                        >
+                          <RefreshCcw className="h-3.5 w-3.5" /> Reprocess this file
+                        </button>
                       )}
                     </div>
                   )}
