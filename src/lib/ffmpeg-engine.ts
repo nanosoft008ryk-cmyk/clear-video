@@ -258,7 +258,8 @@ function buildFilter(
   const pw = Math.floor(w);
   const ph = Math.floor(h);
 
-  return `[0:v]split=2[base][src];[src]crop=${sw}:${sh}:${sx}:${sy},scale=${pw}:${ph}:flags=lanczos[patch];[base][patch]overlay=${px}:${py}:format=auto[outv]`;
+  // Pad to even dimensions for libx264 + yuv420p compatibility.
+  return `[0:v]split=2[base][src];[src]crop=${sw}:${sh}:${sx}:${sy},scale=${pw}:${ph}:flags=lanczos[patch];[base][patch]overlay=${px}:${py}:format=auto,pad=ceil(iw/2)*2:ceil(ih/2)*2[outv]`;
 }
 
 export interface ProcessOptions {
@@ -300,9 +301,12 @@ export async function removeWatermark(
         "-c:v", "libx264",
         "-preset", opts.preset ?? "veryfast",
         "-crf", String(opts.crf ?? 20),
+        "-tune", "fastdecode",
         "-pix_fmt", "yuv420p",
-        "-c:a", "copy",
+        "-c:a", "aac",
+        "-b:a", "128k",
         "-movflags", "+faststart",
+        "-y",
         outputName,
       ];
       await ff.exec(args);
