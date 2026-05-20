@@ -71,6 +71,7 @@ interface Store {
   exports: ExportItem[];
   settings: Settings;
   logs: string[];
+  jobLogs: Record<string, string[]>;
 
   addVideo: (v: VideoItem, file: File) => void;
   removeVideo: (id: string) => void;
@@ -92,6 +93,7 @@ interface Store {
 
   setSettings: (patch: Partial<Settings>) => void;
   pushLog: (msg: string) => void;
+  pushJobLog: (jobId: string, msg: string) => void;
 }
 
 export const useAppStore = create<Store>()(
@@ -104,6 +106,7 @@ export const useAppStore = create<Store>()(
       jobs: [],
       exports: [],
       logs: [],
+      jobLogs: {},
       settings: {
         concurrency: 2,
         preset: "veryfast",
@@ -201,6 +204,13 @@ export const useAppStore = create<Store>()(
         set((s) => ({ settings: { ...s.settings, ...patch } })),
       pushLog: (msg) =>
         set((s) => ({ logs: [...s.logs.slice(-499), msg] })),
+      pushJobLog: (jobId, msg) =>
+        set((s) => {
+          const prev = s.jobLogs[jobId] ?? [];
+          return {
+            jobLogs: { ...s.jobLogs, [jobId]: [...prev.slice(-299), msg] },
+          };
+        }),
     }),
     {
       name: "bvwr-store",
