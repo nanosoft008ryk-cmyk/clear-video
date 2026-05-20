@@ -120,7 +120,7 @@ async function registerCoreServiceWorker() {
 }
 
 function coreUrl(path: string) {
-  return `${CORE_PATH}/${path}?v=${CORE_CACHE_TOKEN}`;
+  return `${CORE_PATH}/${path}`;
 }
 
 async function hasUsableCoreCache(cache: Cache): Promise<boolean> {
