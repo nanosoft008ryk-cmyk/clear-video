@@ -96,6 +96,7 @@ function HomePage() {
   const removeVideo = useAppStore((s) => s.removeVideo);
   const addTemplate = useAppStore((s) => s.addTemplate);
   const removeTemplate = useAppStore((s) => s.removeTemplate);
+  const updateTemplate = useAppStore((s) => s.updateTemplate);
   const enqueue = useAppStore((s) => s.enqueue);
   const retryJob = useAppStore((s) => s.retryJob);
   const cancelJob = useAppStore((s) => s.cancelJob);
@@ -182,6 +183,56 @@ function HomePage() {
     addTemplate(t);
     enqueue([active.id], t.id);
     scrollToId("results");
+  };
+
+  const saveMask = () => {
+    if (!active) return;
+    const suggested = `Mask ${templates.length + 1}`;
+    const name = (typeof window !== "undefined"
+      ? window.prompt("Name this mask preset", suggested)
+      : suggested) ?? "";
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const t = buildTemplate(trimmed);
+    if (!t) return;
+    addTemplate(t);
+  };
+
+  const loadTemplate = (templateId: string) => {
+    const t = templates.find((x) => x.id === templateId);
+    if (!t || !active) return;
+    setFillMode(t.fillMode);
+    if (t.refWidth && t.refHeight) {
+      const sx = dispW / t.refWidth;
+      const sy = dispH / t.refHeight;
+      setBox({
+        x: Math.round(t.x * sx),
+        y: Math.round(t.y * sy),
+        width: Math.round(t.width * sx),
+        height: Math.round(t.height * sy),
+      });
+    } else {
+      const sx = dispW / active.meta.width;
+      const sy = dispH / active.meta.height;
+      setBox({
+        x: Math.round(t.x * sx),
+        y: Math.round(t.y * sy),
+        width: Math.round(t.width * sx),
+        height: Math.round(t.height * sy),
+      });
+    }
+  };
+
+  const renameTemplate = (templateId: string) => {
+    const t = templates.find((x) => x.id === templateId);
+    if (!t) return;
+    const name = typeof window !== "undefined"
+      ? window.prompt("Rename mask preset", t.name)
+      : null;
+    if (!name) return;
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    updateTemplate(templateId, { name: trimmed });
   };
 
   const removeAll = () => {
