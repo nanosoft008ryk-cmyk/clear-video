@@ -135,7 +135,14 @@ export const useAppStore = create<Store>()(
           ),
         })),
       removeTemplate: (id) =>
-        set((s) => ({ templates: s.templates.filter((t) => t.id !== id) })),
+        set((s) => ({
+          templates: s.templates.filter((t) => t.id !== id),
+          jobs: s.jobs.map((j) =>
+            j.templateId === id && j.status === "queued"
+              ? { ...j, status: "cancelled" as JobStatus, error: "Template deleted" }
+              : j,
+          ),
+        })),
       duplicateTemplate: (id) =>
         set((s) => {
           const t = s.templates.find((x) => x.id === id);
