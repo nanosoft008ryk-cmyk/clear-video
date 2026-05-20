@@ -6,6 +6,15 @@ import {
   getCacheState,
   type CacheState,
 } from "@/lib/ffmpeg-cache";
+import {
+  clearVideos as idbClearVideos,
+  deleteExport as idbDeleteExport,
+  deleteVideo as idbDeleteVideo,
+  getAllExports as idbGetAllExports,
+  getAllVideos as idbGetAllVideos,
+  putExport as idbPutExport,
+  putVideo as idbPutVideo,
+} from "@/lib/idb-store";
 
 export interface Template {
   id: string;
@@ -35,6 +44,9 @@ export interface VideoItem {
   size: number;
   meta: VideoMeta;
   thumbnail?: string;
+  // Captured from <input webkitdirectory> or DataTransferItem entries.
+  // Used to recreate folder structure inside the batch ZIP export.
+  relativePath?: string;
 }
 
 export interface QueueJob {
@@ -85,6 +97,7 @@ interface Store {
   logs: string[];
   jobLogs: Record<string, string[]>;
   coreCache: CacheState;
+  hydrated: boolean;
 
   addVideo: (v: VideoItem, file: File) => void;
   removeVideo: (id: string) => void;
@@ -109,6 +122,7 @@ interface Store {
   pushJobLog: (jobId: string, msg: string) => void;
   pushJobStderr: (jobId: string, msg: string) => void;
   setCoreCache: (s: CacheState) => void;
+  rehydrateFromIDB: () => Promise<void>;
 }
 
 export const useAppStore = create<Store>()(
@@ -130,18 +144,30 @@ export const useAppStore = create<Store>()(
         maxRetries: 2,
       },
       coreCache: getCacheState(),
+      hydrated: false,
 
       addVideo: (v, file) => {
         get().videoFiles.set(v.id, file);
         set((s) => ({ videos: [...s.videos, v] }));
+        void idbPutVideo({
+          id: v.id,
+          name: v.name,
+          size: v.size,
+          meta: v.meta,
+          thumbnail: v.thumbnail,
+          relativePath: v.relativePath,
+          file,
+        }).catch(() => undefined);
       },
       removeVideo: (id) => {
         get().videoFiles.delete(id);
         set((s) => ({ videos: s.videos.filter((v) => v.id !== id) }));
+        void idbDeleteVideo(id).catch(() => undefined);
       },
       clearVideos: () => {
         get().videoFiles.clear();
         set({ videos: [] });
+        void idbClearVideos().catch(() => undefined);
       },
 
       addTemplate: (t) => set((s) => ({ templates: [t, ...s.templates] })),
@@ -229,10 +255,19 @@ export const useAppStore = create<Store>()(
       addExport: (e, blob) => {
         get().exportBlobs.set(e.id, blob);
         set((s) => ({ exports: [e, ...s.exports] }));
+        void idbPutExport({
+          id: e.id,
+          jobId: e.jobId,
+          name: e.name,
+          size: e.size,
+          createdAt: e.createdAt,
+          blob,
+        }).catch(() => undefined);
       },
       removeExport: (id) => {
         get().exportBlobs.delete(id);
         set((s) => ({ exports: s.exports.filter((e) => e.id !== id) }));
+        void idbDeleteExport(id).catch(() => undefined);
       },
 
       setSettings: (patch) =>
@@ -255,12 +290,60 @@ export const useAppStore = create<Store>()(
           ),
         })),
       setCoreCache: (cs) => set({ coreCache: cs }),
+
+      rehydrateFromIDB: async () => {
+        if (get().hydrated) return;
+        try {
+          const [vids, exps] = await Promise.all([
+            idbGetAllVideos(),
+            idbGetAllExports(),
+          ]);
+          const videoFiles = get().videoFiles;
+          const exportBlobs = get().exportBlobs;
+          const videos: VideoItem[] = [];
+          for (const v of vids) {
+            videoFiles.set(
+              v.id,
+              new File([v.file], v.name, { type: v.file.type || "video/mp4" }),
+            );
+            videos.push({
+              id: v.id,
+              name: v.name,
+              size: v.size,
+              meta: v.meta,
+              thumbnail: v.thumbnail,
+              relativePath: v.relativePath,
+            });
+          }
+          const exports: ExportItem[] = [];
+          for (const e of exps) {
+            exportBlobs.set(e.id, e.blob);
+            exports.push({
+              id: e.id,
+              jobId: e.jobId,
+              name: e.name,
+              size: e.size,
+              createdAt: e.createdAt,
+            });
+          }
+          // Resume jobs interrupted by the reload.
+          const jobs = get().jobs.map((j) =>
+            j.status === "processing"
+              ? { ...j, status: "queued" as JobStatus, progress: 0 }
+              : j,
+          );
+          set({ videos, exports, jobs, hydrated: true });
+        } catch {
+          set({ hydrated: true });
+        }
+      },
     }),
     {
       name: "bvwr-store",
       partialize: (s) => ({
         templates: s.templates,
         settings: s.settings,
+        jobs: s.jobs,
       }),
     },
   ),
