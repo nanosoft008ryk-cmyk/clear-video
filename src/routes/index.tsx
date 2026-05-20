@@ -2,7 +2,6 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Rnd } from "react-rnd";
 import {
-  Trash2,
   Wand2,
   Layers,
   Download,
@@ -10,12 +9,22 @@ import {
   RefreshCcw,
   X,
   ChevronDown,
+  Zap,
+  Film,
+  Gauge,
+  ShieldCheck,
+  Lock,
+  Sparkles,
+  Cpu,
+  Upload as UploadIcon,
+  MousePointerClick,
+  DownloadCloud,
 } from "lucide-react";
 import JSZip from "jszip";
 import { useAppStore, type Template } from "@/store/app-store";
 import type { FillMode } from "@/lib/ffmpeg-engine";
 import { UploadZone } from "@/components/UploadZone";
-import { Pill, Progress, formatBytes, formatDuration } from "@/components/ui-bits";
+import { Pill, Progress, formatDuration } from "@/components/ui-bits";
 
 export const Route = createFileRoute("/")({
   component: HomePage,
