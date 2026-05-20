@@ -19,6 +19,13 @@ import {
   Upload as UploadIcon,
   MousePointerClick,
   DownloadCloud,
+  MoveHorizontal,
+  MoveVertical,
+  Wand,
+  SquareDashed,
+  Copy,
+  Save,
+  Bookmark,
 } from "lucide-react";
 import JSZip from "jszip";
 import { useAppStore, type Template } from "@/store/app-store";
@@ -30,12 +37,42 @@ export const Route = createFileRoute("/")({
   component: HomePage,
 });
 
-const FILL_MODES: { value: FillMode; label: string }[] = [
-  { value: "horizontal", label: "Horizontal stretch" },
-  { value: "vertical", label: "Vertical stretch" },
-  { value: "auto", label: "Auto (best direction)" },
-  { value: "edge", label: "Edge expand" },
-  { value: "clone", label: "Clone adjacent" },
+const FILL_MODES: {
+  value: FillMode;
+  label: string;
+  hint: string;
+  icon: React.ReactNode;
+}[] = [
+  {
+    value: "auto",
+    label: "Auto",
+    hint: "Pick the best direction automatically",
+    icon: <Wand className="h-3.5 w-3.5" />,
+  },
+  {
+    value: "horizontal",
+    label: "Horizontal",
+    hint: "Stretch pixels from the sides",
+    icon: <MoveHorizontal className="h-3.5 w-3.5" />,
+  },
+  {
+    value: "vertical",
+    label: "Vertical",
+    hint: "Stretch pixels from top/bottom",
+    icon: <MoveVertical className="h-3.5 w-3.5" />,
+  },
+  {
+    value: "edge",
+    label: "Edge",
+    hint: "Expand the nearest edge strip",
+    icon: <SquareDashed className="h-3.5 w-3.5" />,
+  },
+  {
+    value: "clone",
+    label: "Clone",
+    hint: "Copy an adjacent block of pixels",
+    icon: <Copy className="h-3.5 w-3.5" />,
+  },
 ];
 
 function downloadBlob(blob: Blob, name: string) {
@@ -59,6 +96,7 @@ function HomePage() {
   const removeVideo = useAppStore((s) => s.removeVideo);
   const addTemplate = useAppStore((s) => s.addTemplate);
   const removeTemplate = useAppStore((s) => s.removeTemplate);
+  const updateTemplate = useAppStore((s) => s.updateTemplate);
   const enqueue = useAppStore((s) => s.enqueue);
   const retryJob = useAppStore((s) => s.retryJob);
   const cancelJob = useAppStore((s) => s.cancelJob);
@@ -145,6 +183,56 @@ function HomePage() {
     addTemplate(t);
     enqueue([active.id], t.id);
     scrollToId("results");
+  };
+
+  const saveMask = () => {
+    if (!active) return;
+    const suggested = `Mask ${templates.length + 1}`;
+    const name = (typeof window !== "undefined"
+      ? window.prompt("Name this mask preset", suggested)
+      : suggested) ?? "";
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const t = buildTemplate(trimmed);
+    if (!t) return;
+    addTemplate(t);
+  };
+
+  const loadTemplate = (templateId: string) => {
+    const t = templates.find((x) => x.id === templateId);
+    if (!t || !active) return;
+    setFillMode(t.fillMode);
+    if (t.refWidth && t.refHeight) {
+      const sx = dispW / t.refWidth;
+      const sy = dispH / t.refHeight;
+      setBox({
+        x: Math.round(t.x * sx),
+        y: Math.round(t.y * sy),
+        width: Math.round(t.width * sx),
+        height: Math.round(t.height * sy),
+      });
+    } else {
+      const sx = dispW / active.meta.width;
+      const sy = dispH / active.meta.height;
+      setBox({
+        x: Math.round(t.x * sx),
+        y: Math.round(t.y * sy),
+        width: Math.round(t.width * sx),
+        height: Math.round(t.height * sy),
+      });
+    }
+  };
+
+  const renameTemplate = (templateId: string) => {
+    const t = templates.find((x) => x.id === templateId);
+    if (!t) return;
+    const name = typeof window !== "undefined"
+      ? window.prompt("Rename mask preset", t.name)
+      : null;
+    if (!name) return;
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    updateTemplate(templateId, { name: trimmed });
   };
 
   const removeAll = () => {
@@ -340,29 +428,53 @@ function HomePage() {
                 </Rnd>
               </div>
             </div>
-            <div className="flex flex-wrap items-center gap-3 border-t border-border bg-card px-4 py-3">
-              <div className="flex items-center gap-2 text-xs">
-                <span className="text-muted-foreground">Fill</span>
-                <div className="relative">
-                  <select
-                    value={fillMode}
-                    onChange={(e) => setFillMode(e.target.value as FillMode)}
-                    className="appearance-none rounded-lg border border-border bg-input pl-3 pr-7 py-1.5 text-xs"
+            <div className="space-y-3 border-t border-border bg-card px-4 py-3">
+              <div>
+                <div className="mb-1.5 flex items-center justify-between">
+                  <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                    Fill mode
+                  </span>
+                  <span
+                    className="text-[11px] text-muted-foreground"
+                    title={FILL_MODES.find((m) => m.value === fillMode)?.hint}
                   >
-                    {FILL_MODES.map((m) => (
-                      <option key={m.value} value={m.value}>
+                    {FILL_MODES.find((m) => m.value === fillMode)?.hint}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-1 sm:grid-cols-5">
+                  {FILL_MODES.map((m) => {
+                    const selected = m.value === fillMode;
+                    return (
+                      <button
+                        key={m.value}
+                        onClick={() => setFillMode(m.value)}
+                        title={m.hint}
+                        className={`inline-flex items-center justify-center gap-1.5 rounded-lg border px-2.5 py-2 text-xs font-medium transition ${
+                          selected
+                            ? "border-primary bg-primary/15 text-foreground"
+                            : "border-border bg-input text-muted-foreground hover:text-foreground hover:border-primary/40"
+                        }`}
+                      >
+                        {m.icon}
                         {m.label}
-                      </option>
-                    ))}
-                  </select>
-                  <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
-              <div className="font-mono text-[11px] text-muted-foreground">
-                {active.meta.width}×{active.meta.height} ·{" "}
-                {formatDuration(active.meta.duration)}
-              </div>
-              <div className="ml-auto flex flex-wrap gap-2">
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="font-mono text-[11px] text-muted-foreground">
+                  {active.meta.width}×{active.meta.height} ·{" "}
+                  {formatDuration(active.meta.duration)}
+                </div>
+                <div className="ml-auto flex flex-wrap gap-2">
+                <button
+                  onClick={saveMask}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-medium hover:bg-secondary"
+                  title="Save the current mask as a reusable preset"
+                >
+                  <Save className="h-3.5 w-3.5" /> Save mask
+                </button>
                 <button
                   onClick={removeCurrent}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-medium hover:bg-secondary"
@@ -376,6 +488,7 @@ function HomePage() {
                 >
                   <Layers className="h-3.5 w-3.5" /> Apply to all {videos.length}
                 </button>
+                </div>
               </div>
             </div>
           </div>
@@ -383,24 +496,38 @@ function HomePage() {
           {templates.length > 0 && (
             <div className="mt-4">
               <div className="mb-2 text-[11px] uppercase tracking-wide text-muted-foreground">
-                Saved masks · click to reapply to all videos
+                Saved mask presets
               </div>
               <div className="flex flex-wrap gap-2">
                 {templates.map((t) => (
                   <div
                     key={t.id}
-                    className="group inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1 text-xs"
+                    className="group inline-flex items-center gap-1 rounded-full border border-border bg-card pl-3 pr-1 py-1 text-xs"
                   >
+                    <Bookmark className="h-3 w-3 text-primary" />
                     <button
-                      onClick={() => applyTemplate(t.id)}
+                      onClick={() => loadTemplate(t.id)}
+                      onDoubleClick={() => renameTemplate(t.id)}
                       className="font-medium hover:text-primary"
-                      title={`${t.width}×${t.height} @ (${t.x},${t.y}) · ${t.fillMode}`}
+                      title={`Load into editor · ${t.width}×${t.height} @ (${t.x},${t.y}) · ${t.fillMode} · double-click to rename`}
                     >
                       {t.name}
                     </button>
+                    <span className="ml-1 hidden text-[10px] text-muted-foreground sm:inline">
+                      {t.fillMode}
+                    </span>
+                    <button
+                      onClick={() => applyTemplate(t.id)}
+                      className="ml-1 inline-flex items-center gap-1 rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-semibold text-primary hover:bg-primary/25"
+                      title={`Apply to all ${videos.length} video(s)`}
+                      disabled={videos.length === 0}
+                    >
+                      <Layers className="h-3 w-3" /> Apply
+                    </button>
                     <button
                       onClick={() => removeTemplate(t.id)}
-                      className="text-muted-foreground hover:text-destructive"
+                      className="ml-0.5 grid h-5 w-5 place-items-center rounded-full text-muted-foreground hover:bg-destructive hover:text-destructive-foreground"
+                      title="Delete preset"
                     >
                       <X className="h-3 w-3" />
                     </button>
