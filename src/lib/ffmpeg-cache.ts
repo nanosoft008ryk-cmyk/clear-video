@@ -129,11 +129,13 @@ async function fetchWithProgress(
     return new Blob([blob], { type: mime });
   }
   const reader = r.body.getReader();
-  const chunks: Uint8Array[] = [];
+  const chunks: BlobPart[] = [];
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
-    chunks.push(value);
+    const copy = new Uint8Array(value.byteLength);
+    copy.set(value);
+    chunks.push(copy.buffer);
     onChunk(value.byteLength, totalHint);
   }
   return new Blob(chunks, { type: mime });
