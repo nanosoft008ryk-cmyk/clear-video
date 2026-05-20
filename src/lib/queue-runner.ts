@@ -43,7 +43,11 @@ async function runJob(jobId: string) {
       preset: s.settings.preset,
       crf: s.settings.crf,
       onProgress: (p) => useAppStore.getState().updateJob(jobId, { progress: p }),
-      onLog: (m) => useAppStore.getState().pushLog(m),
+      onLog: (m) => {
+        const short = jobId.slice(0, 8);
+        useAppStore.getState().pushLog(`[${short}] ${m}`);
+        useAppStore.getState().pushJobLog(jobId, m);
+      },
     });
     const exportId = crypto.randomUUID();
     const baseName = video.name.replace(/\.[^.]+$/, "");
