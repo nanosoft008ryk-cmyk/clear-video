@@ -9,6 +9,8 @@ import {
   Copy,
   Wand2,
   ListPlus,
+  Pencil,
+  Check,
 } from "lucide-react";
 import { useAppStore, type Template } from "@/store/app-store";
 import type { FillMode } from "@/lib/ffmpeg-engine";
@@ -44,6 +46,8 @@ function EditorPage() {
   const [box, setBox] = useState({ x: 40, y: 40, width: 200, height: 80 });
   const [fillMode, setFillMode] = useState<FillMode>("horizontal");
   const [tplName, setTplName] = useState("New template");
+  const [renameId, setRenameId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
@@ -373,16 +377,64 @@ function EditorPage() {
                   }`}
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <div className="min-w-0 truncate text-sm font-medium">
-                      {t.name}
-                    </div>
+                    {renameId === t.id ? (
+                      <input
+                        autoFocus
+                        value={renameValue}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => setRenameValue(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            updateTemplate(t.id, {
+                              name: renameValue.trim() || t.name,
+                            });
+                            setRenameId(null);
+                          } else if (e.key === "Escape") {
+                            setRenameId(null);
+                          }
+                        }}
+                        className="min-w-0 flex-1 rounded border border-border bg-input px-2 py-1 text-sm"
+                      />
+                    ) : (
+                      <div className="min-w-0 truncate text-sm font-medium">
+                        {t.name}
+                      </div>
+                    )}
                     <div className="flex shrink-0 gap-1">
+                      {renameId === t.id ? (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            updateTemplate(t.id, {
+                              name: renameValue.trim() || t.name,
+                            });
+                            setRenameId(null);
+                          }}
+                          className="rounded p-1 text-muted-foreground hover:bg-secondary"
+                          title="Save name"
+                        >
+                          <Check className="h-3.5 w-3.5" />
+                        </button>
+                      ) : (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setRenameId(t.id);
+                            setRenameValue(t.name);
+                          }}
+                          className="rounded p-1 text-muted-foreground hover:bg-secondary"
+                          title="Rename"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                      )}
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
                           duplicateTemplate(t.id);
                         }}
                         className="rounded p-1 text-muted-foreground hover:bg-secondary"
+                        title="Duplicate"
                       >
                         <Copy className="h-3.5 w-3.5" />
                       </button>
@@ -394,6 +446,7 @@ function EditorPage() {
                             setActiveTemplateId(null);
                         }}
                         className="rounded p-1 text-muted-foreground hover:bg-destructive hover:text-destructive-foreground"
+                        title="Delete"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
