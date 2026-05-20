@@ -260,6 +260,12 @@ function HomePage() {
     jobs.some((j) => j.id === e.jobId && j.status === "done"),
   );
 
+  const allJobsSettled =
+    jobs.length > 0 &&
+    jobs.every((j) => j.status === "done" || j.status === "cancelled");
+  const allJobsDone =
+    jobs.length > 0 && jobs.every((j) => j.status === "done");
+
   const downloadAll = async () => {
     const zip = new JSZip();
     for (const e of finishedExports) {
