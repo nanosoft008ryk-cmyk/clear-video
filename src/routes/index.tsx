@@ -266,14 +266,55 @@ function HomePage() {
   const allJobsDone =
     jobs.length > 0 && jobs.every((j) => j.status === "done");
 
+  const [zipState, setZipState] = useState<{
+    busy: boolean;
+    percent: number;
+    file: string;
+  }>({ busy: false, percent: 0, file: "" });
+
   const downloadAll = async () => {
-    const zip = new JSZip();
-    for (const e of finishedExports) {
-      const b = exportBlobs.get(e.id);
-      if (b) zip.file(e.name, b);
+    if (zipState.busy) return;
+    setZipState({ busy: true, percent: 0, file: "" });
+    try {
+      const zip = new JSZip();
+      // Track entry-name collisions to avoid silent overwrites.
+      const used = new Set<string>();
+      for (const e of finishedExports) {
+        const b = exportBlobs.get(e.id);
+        if (!b) continue;
+        const job = jobs.find((j) => j.id === e.jobId);
+        const vid = job ? videos.find((v) => v.id === job.videoId) : undefined;
+        const sourceName = vid?.name ?? e.name;
+        // Always emit MP4 (the engine re-encodes to H.264/AAC).
+        const base = sourceName.replace(/\.[^.]+$/, "");
+        const folder = vid?.relativePath
+          ? vid.relativePath.split("/").slice(0, -1).join("/")
+          : "";
+        let entry = folder ? `${folder}/${base}.mp4` : `${base}.mp4`;
+        let n = 1;
+        while (used.has(entry)) {
+          entry = folder
+            ? `${folder}/${base} (${++n}).mp4`
+            : `${base} (${++n}).mp4`;
+        }
+        used.add(entry);
+        zip.file(entry, b);
+      }
+      const out = await zip.generateAsync(
+        { type: "blob", compression: "STORE" },
+        (m) =>
+          setZipState({
+            busy: true,
+            percent: Math.round(m.percent),
+            file: m.currentFile ?? "",
+          }),
+      );
+      downloadBlob(out, `cleaned_videos_${Date.now()}.zip`);
+      setZipState({ busy: false, percent: 100, file: "" });
+    } catch (err) {
+      console.error(err);
+      setZipState({ busy: false, percent: 0, file: "" });
     }
-    const out = await zip.generateAsync({ type: "blob" });
-    downloadBlob(out, `cleaned_videos_${Date.now()}.zip`);
   };
 
   const settings = useAppStore((s) => s.settings);
@@ -579,12 +620,30 @@ function HomePage() {
                   </div>
                 </div>
               </div>
-              <button
-                onClick={downloadAll}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-[image:var(--gradient-primary)] px-4 py-2 text-sm font-semibold text-primary-foreground shadow-lg"
-              >
-                <Archive className="h-4 w-4" /> Download all (ZIP)
-              </button>
+              <div className="flex min-w-[220px] flex-col items-end gap-1.5">
+                <button
+                  onClick={downloadAll}
+                  disabled={zipState.busy}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-[image:var(--gradient-primary)] px-4 py-2 text-sm font-semibold text-primary-foreground shadow-lg disabled:opacity-60"
+                >
+                  <Archive className="h-4 w-4" />
+                  {zipState.busy
+                    ? `Packaging… ${zipState.percent}%`
+                    : "Download all (ZIP)"}
+                </button>
+                {zipState.busy && (
+                  <>
+                    <div className="w-full">
+                      <Progress value={zipState.percent / 100} />
+                    </div>
+                    {zipState.file && (
+                      <div className="max-w-[260px] truncate font-mono text-[10px] text-muted-foreground">
+                        {zipState.file}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
             </div>
           )}
           {allJobsSettled && !allJobsDone && finishedExports.length > 0 && (
@@ -593,13 +652,23 @@ function HomePage() {
                 {finishedExports.length} of {jobs.length} finished — some jobs
                 failed or were cancelled.
               </div>
-              <button
-                onClick={downloadAll}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-semibold hover:bg-secondary"
-              >
-                <Archive className="h-3.5 w-3.5" /> Download finished (
-                {finishedExports.length})
-              </button>
+              <div className="flex min-w-[200px] flex-col items-end gap-1.5">
+                <button
+                  onClick={downloadAll}
+                  disabled={zipState.busy}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-semibold hover:bg-secondary disabled:opacity-60"
+                >
+                  <Archive className="h-3.5 w-3.5" />
+                  {zipState.busy
+                    ? `Packaging… ${zipState.percent}%`
+                    : `Download finished (${finishedExports.length})`}
+                </button>
+                {zipState.busy && (
+                  <div className="w-full">
+                    <Progress value={zipState.percent / 100} />
+                  </div>
+                )}
+              </div>
             </div>
           )}
           <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card">
