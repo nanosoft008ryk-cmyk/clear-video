@@ -88,6 +88,12 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
       { name: "twitter:site", content: "@Lovable" },
+      { name: "twitter:title", content: "Bulk Video Watermark Remover" },
+      { name: "description", content: "Bulk Video Watermark Remover is a desktop-first web application for removing watermarks from videos." },
+      { property: "og:description", content: "Bulk Video Watermark Remover is a desktop-first web application for removing watermarks from videos." },
+      { name: "twitter:description", content: "Bulk Video Watermark Remover is a desktop-first web application for removing watermarks from videos." },
+      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/fad0c2fd-0d3e-4cb2-adf1-a620af002e26/id-preview-5faafb8d--8f22f9c6-f4bc-4867-9cb3-caf19add4b3d.lovable.app-1779285892574.png" },
+      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/fad0c2fd-0d3e-4cb2-adf1-a620af002e26/id-preview-5faafb8d--8f22f9c6-f4bc-4867-9cb3-caf19add4b3d.lovable.app-1779285892574.png" },
     ],
     links: [
       {
