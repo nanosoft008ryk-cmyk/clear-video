@@ -138,7 +138,7 @@ export const useAppStore = create<Store>()(
         set((s) => ({
           templates: s.templates.filter((t) => t.id !== id),
           jobs: s.jobs.map((j) =>
-            j.templateId === id && (j.status === "queued" || j.status === "pending")
+            j.templateId === id && j.status === "queued"
               ? { ...j, status: "cancelled" as JobStatus, error: "Template deleted" }
               : j,
           ),
