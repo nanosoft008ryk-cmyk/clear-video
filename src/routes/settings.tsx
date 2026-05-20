@@ -17,11 +17,14 @@ function SettingsPage() {
       <div className="px-8 py-6 max-w-2xl space-y-6">
         <section className="rounded-xl border border-border bg-card p-5 space-y-4">
           <h2 className="text-sm font-semibold">Processing</h2>
-          <Field label="Concurrent workers" hint="More workers = faster batches, higher CPU/RAM">
+          <Field
+            label="Concurrent workers"
+            hint="FFmpeg WASM is single-threaded — jobs run serially regardless. Higher values only stage more jobs as in-flight in the UI."
+          >
             <input
               type="range"
               min={1}
-              max={4}
+              max={2}
               value={settings.concurrency}
               onChange={(e) => setSettings({ concurrency: Number(e.target.value) })}
               className="w-full"

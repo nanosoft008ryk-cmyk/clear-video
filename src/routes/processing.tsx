@@ -124,12 +124,12 @@ function ProcessingPage() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
               <InlineField
                 label="Concurrent workers"
-                hint={`${settings.concurrency} parallel`}
+                hint="Engine serialized — UI staging only"
               >
                 <input
                   type="range"
                   min={1}
-                  max={4}
+                  max={2}
                   value={settings.concurrency}
                   onChange={(e) =>
                     setSettings({ concurrency: Number(e.target.value) })
