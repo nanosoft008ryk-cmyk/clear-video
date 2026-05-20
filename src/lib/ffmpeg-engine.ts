@@ -3,15 +3,25 @@ import { fetchFile, toBlobURL } from "@ffmpeg/util";
 
 let _ffmpeg: FFmpeg | null = null;
 let _loading: Promise<FFmpeg> | null = null;
+let _execChain: Promise<unknown> = Promise.resolve();
+const _logListeners = new Set<(msg: string) => void>();
 
 const CORE_BASE = "https://unpkg.com/@ffmpeg/core@0.12.10/dist/umd";
 
-export async function getFFmpeg(onLog?: (msg: string) => void): Promise<FFmpeg> {
+export async function getFFmpeg(): Promise<FFmpeg> {
   if (_ffmpeg) return _ffmpeg;
   if (_loading) return _loading;
   _loading = (async () => {
     const ff = new FFmpeg();
-    if (onLog) ff.on("log", ({ message }) => onLog(message));
+    ff.on("log", ({ message }) => {
+      for (const fn of _logListeners) {
+        try {
+          fn(message);
+        } catch {
+          /* noop */
+        }
+      }
+    });
     await ff.load({
       coreURL: await toBlobURL(`${CORE_BASE}/ffmpeg-core.js`, "text/javascript"),
       wasmURL: await toBlobURL(`${CORE_BASE}/ffmpeg-core.wasm`, "application/wasm"),
@@ -20,6 +30,25 @@ export async function getFFmpeg(onLog?: (msg: string) => void): Promise<FFmpeg> 
     return ff;
   })();
   return _loading;
+}
+
+/** Warm up FFmpeg in the background so first job starts instantly. */
+export function preloadFFmpeg() {
+  getFFmpeg().catch(() => {
+    /* surfaced at first job */
+  });
+}
+
+/**
+ * ffmpeg.wasm uses a single shared virtual filesystem + WASM heap.
+ * Two concurrent jobs writing/reading files would corrupt each other.
+ * This mutex serializes the actual FFmpeg work while leaving the UI
+ * concurrency knob in place for queue throughput tuning.
+ */
+function withEngineLock<T>(fn: () => Promise<T>): Promise<T> {
+  const next = _execChain.then(fn, fn);
+  _execChain = next.catch(() => {});
+  return next;
 }
 
 export type FillMode =
@@ -50,7 +79,12 @@ export async function probeVideo(file: File): Promise<VideoMeta> {
     v.preload = "metadata";
     v.muted = true;
     v.src = url;
+    const timer = setTimeout(() => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Timed out reading video metadata"));
+    }, 8000);
     v.onloadedmetadata = () => {
+      clearTimeout(timer);
       const meta = {
         width: v.videoWidth,
         height: v.videoHeight,
@@ -60,6 +94,7 @@ export async function probeVideo(file: File): Promise<VideoMeta> {
       resolve(meta);
     };
     v.onerror = () => {
+      clearTimeout(timer);
       URL.revokeObjectURL(url);
       reject(new Error("Could not read video metadata"));
     };
@@ -74,10 +109,15 @@ export async function extractThumbnail(file: File): Promise<string> {
     v.muted = true;
     v.src = url;
     v.crossOrigin = "anonymous";
+    const timer = setTimeout(() => {
+      URL.revokeObjectURL(url);
+      reject(new Error("thumbnail timeout"));
+    }, 8000);
     v.onloadedmetadata = () => {
       v.currentTime = Math.min(0.5, v.duration / 2);
     };
     v.onseeked = () => {
+      clearTimeout(timer);
       const canvas = document.createElement("canvas");
       const scale = 320 / v.videoWidth;
       canvas.width = 320;
@@ -88,6 +128,7 @@ export async function extractThumbnail(file: File): Promise<string> {
       resolve(canvas.toDataURL("image/jpeg", 0.7));
     };
     v.onerror = () => {
+      clearTimeout(timer);
       URL.revokeObjectURL(url);
       reject(new Error("thumbnail failed"));
     };
@@ -218,40 +259,47 @@ export async function removeWatermark(
   file: File,
   opts: ProcessOptions,
 ): Promise<Blob> {
-  const ff = await getFFmpeg(opts.onLog);
-  const inputName = `in_${Date.now()}.${(file.name.split(".").pop() || "mp4").toLowerCase()}`;
-  const outputName = `out_${Date.now()}.mp4`;
+  return withEngineLock(async () => {
+    const ff = await getFFmpeg();
+    const stamp = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const ext = (file.name.split(".").pop() || "mp4").toLowerCase();
+    const inputName = `in_${stamp}.${ext}`;
+    const outputName = `out_${stamp}.mp4`;
 
-  const handler = ({ progress }: { progress: number }) => {
-    if (opts.onProgress) opts.onProgress(Math.min(1, Math.max(0, progress)));
-  };
-  ff.on("progress", handler);
+    const progressHandler = ({ progress }: { progress: number }) => {
+      if (opts.onProgress)
+        opts.onProgress(Math.min(1, Math.max(0, progress)));
+    };
+    ff.on("progress", progressHandler);
+    if (opts.onLog) _logListeners.add(opts.onLog);
 
-  try {
-    await ff.writeFile(inputName, await fetchFile(file));
-    const filter = buildFilter(opts.region, opts.meta);
-    const args = [
-      "-i", inputName,
-      "-filter_complex", filter,
-      "-map", "[outv]",
-      "-map", "0:a?",
-      "-c:v", "libx264",
-      "-preset", opts.preset ?? "veryfast",
-      "-crf", String(opts.crf ?? 20),
-      "-pix_fmt", "yuv420p",
-      "-c:a", "copy",
-      "-movflags", "+faststart",
-      outputName,
-    ];
-    await ff.exec(args);
-    const data = (await ff.readFile(outputName)) as Uint8Array;
-    const ab = new ArrayBuffer(data.byteLength);
-    new Uint8Array(ab).set(data);
-    const blob = new Blob([ab], { type: "video/mp4" });
-    await ff.deleteFile(inputName).catch(() => {});
-    await ff.deleteFile(outputName).catch(() => {});
-    return blob;
-  } finally {
-    ff.off("progress", handler);
-  }
+    try {
+      await ff.writeFile(inputName, await fetchFile(file));
+      const filter = buildFilter(opts.region, opts.meta);
+      const args = [
+        "-i", inputName,
+        "-filter_complex", filter,
+        "-map", "[outv]",
+        "-map", "0:a?",
+        "-c:v", "libx264",
+        "-preset", opts.preset ?? "veryfast",
+        "-crf", String(opts.crf ?? 20),
+        "-pix_fmt", "yuv420p",
+        "-c:a", "copy",
+        "-movflags", "+faststart",
+        outputName,
+      ];
+      await ff.exec(args);
+      const data = (await ff.readFile(outputName)) as Uint8Array;
+      const ab = new ArrayBuffer(data.byteLength);
+      new Uint8Array(ab).set(data);
+      const blob = new Blob([ab], { type: "video/mp4" });
+      await ff.deleteFile(inputName).catch(() => {});
+      await ff.deleteFile(outputName).catch(() => {});
+      return blob;
+    } finally {
+      ff.off("progress", progressHandler);
+      if (opts.onLog) _logListeners.delete(opts.onLog);
+    }
+  });
 }
