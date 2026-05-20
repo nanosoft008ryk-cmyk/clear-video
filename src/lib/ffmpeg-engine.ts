@@ -6,7 +6,22 @@ let _loading: Promise<FFmpeg> | null = null;
 let _execChain: Promise<unknown> = Promise.resolve();
 const _logListeners = new Set<(msg: string) => void>();
 
-const CORE_BASE = "https://unpkg.com/@ffmpeg/core@0.12.10/dist/umd";
+const CORE_BASES = [
+  "https://unpkg.com/@ffmpeg/core@0.12.10/dist/umd",
+  "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/umd",
+];
+
+async function loadWithFallback(path: string, mime: string): Promise<string> {
+  let lastErr: unknown;
+  for (const base of CORE_BASES) {
+    try {
+      return await toBlobURL(`${base}/${path}`, mime);
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error("FFmpeg core fetch failed");
+}
 
 export async function getFFmpeg(): Promise<FFmpeg> {
   if (_ffmpeg) return _ffmpeg;
@@ -22,10 +37,11 @@ export async function getFFmpeg(): Promise<FFmpeg> {
         }
       }
     });
-    await ff.load({
-      coreURL: await toBlobURL(`${CORE_BASE}/ffmpeg-core.js`, "text/javascript"),
-      wasmURL: await toBlobURL(`${CORE_BASE}/ffmpeg-core.wasm`, "application/wasm"),
-    });
+    const [coreURL, wasmURL] = await Promise.all([
+      loadWithFallback("ffmpeg-core.js", "text/javascript"),
+      loadWithFallback("ffmpeg-core.wasm", "application/wasm"),
+    ]);
+    await ff.load({ coreURL, wasmURL });
     _ffmpeg = ff;
     return ff;
   })();
