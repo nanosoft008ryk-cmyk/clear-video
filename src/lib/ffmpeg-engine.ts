@@ -244,8 +244,10 @@ export async function removeWatermark(
       outputName,
     ];
     await ff.exec(args);
-    const data = await ff.readFile(outputName);
-    const blob = new Blob([data as Uint8Array], { type: "video/mp4" });
+    const data = (await ff.readFile(outputName)) as Uint8Array;
+    const ab = new ArrayBuffer(data.byteLength);
+    new Uint8Array(ab).set(data);
+    const blob = new Blob([ab], { type: "video/mp4" });
     await ff.deleteFile(inputName).catch(() => {});
     await ff.deleteFile(outputName).catch(() => {});
     return blob;
