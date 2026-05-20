@@ -1,6 +1,11 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { FillMode, VideoMeta, WatermarkRegion } from "@/lib/ffmpeg-engine";
+import {
+  subscribeCache,
+  getCacheState,
+  type CacheState,
+} from "@/lib/ffmpeg-cache";
 
 export interface Template {
   id: string;
@@ -41,6 +46,12 @@ export interface QueueJob {
   error?: string;
   startedAt?: number;
   finishedAt?: number;
+  attempts: number;
+  command?: string;
+  stderr?: string[];
+  appliedPreset?: string;
+  appliedCrf?: number;
+  appliedAudio?: "aac" | "copy" | "none";
 }
 
 export interface ExportItem {
@@ -58,6 +69,7 @@ interface Settings {
   preset: "ultrafast" | "veryfast" | "fast" | "medium";
   crf: number;
   autoDelete: boolean;
+  maxRetries: number;
 }
 
 interface Store {
@@ -72,6 +84,7 @@ interface Store {
   settings: Settings;
   logs: string[];
   jobLogs: Record<string, string[]>;
+  coreCache: CacheState;
 
   addVideo: (v: VideoItem, file: File) => void;
   removeVideo: (id: string) => void;
@@ -94,6 +107,8 @@ interface Store {
   setSettings: (patch: Partial<Settings>) => void;
   pushLog: (msg: string) => void;
   pushJobLog: (jobId: string, msg: string) => void;
+  pushJobStderr: (jobId: string, msg: string) => void;
+  setCoreCache: (s: CacheState) => void;
 }
 
 export const useAppStore = create<Store>()(
@@ -112,7 +127,9 @@ export const useAppStore = create<Store>()(
         preset: "veryfast",
         crf: 20,
         autoDelete: false,
+        maxRetries: 2,
       },
+      coreCache: getCacheState(),
 
       addVideo: (v, file) => {
         get().videoFiles.set(v.id, file);
@@ -170,6 +187,7 @@ export const useAppStore = create<Store>()(
               templateId,
               status: "queued" as JobStatus,
               progress: 0,
+              attempts: 0,
             })),
           ],
         })),
@@ -188,7 +206,17 @@ export const useAppStore = create<Store>()(
       retryJob: (id) =>
         set((s) => ({
           jobs: s.jobs.map((j) =>
-            j.id === id ? { ...j, status: "queued", progress: 0, error: undefined } : j,
+            j.id === id
+              ? {
+                  ...j,
+                  status: "queued",
+                  progress: 0,
+                  error: undefined,
+                  attempts: 0,
+                  stderr: [],
+                  command: undefined,
+                }
+              : j,
           ),
         })),
       clearJobs: () =>
@@ -218,6 +246,15 @@ export const useAppStore = create<Store>()(
             jobLogs: { ...s.jobLogs, [jobId]: [...prev.slice(-299), msg] },
           };
         }),
+      pushJobStderr: (jobId, msg) =>
+        set((s) => ({
+          jobs: s.jobs.map((j) =>
+            j.id === jobId
+              ? { ...j, stderr: [...(j.stderr ?? []).slice(-299), msg] }
+              : j,
+          ),
+        })),
+      setCoreCache: (cs) => set({ coreCache: cs }),
     }),
     {
       name: "bvwr-store",
@@ -228,6 +265,14 @@ export const useAppStore = create<Store>()(
     },
   ),
 );
+
+// Mirror the FFmpeg core cache state into the zustand store so React
+// components can re-render without a separate subscription.
+if (typeof window !== "undefined") {
+  subscribeCache((cs) => {
+    useAppStore.getState().setCoreCache(cs);
+  });
+}
 
 export function templateToRegion(
   t: Template,
