@@ -49,20 +49,42 @@ async function runJob(jobId: string) {
     s.updateJob(jobId, { status: "error", error: "Missing input" });
     return;
   }
-  s.updateJob(jobId, { startedAt: Date.now() });
+  const attempt = (job.attempts ?? 0) + 1;
+  const profile = resolveProfile(attempt, s.settings);
+  s.updateJob(jobId, {
+    startedAt: Date.now(),
+    attempts: attempt,
+    stderr: [],
+    command: undefined,
+    appliedPreset: profile.preset,
+    appliedCrf: profile.crf,
+    appliedAudio: profile.audio,
+  });
+  useAppStore
+    .getState()
+    .pushJobLog(
+      jobId,
+      `▶ attempt ${attempt} · preset=${profile.preset} crf=${profile.crf} audio=${profile.audio}`,
+    );
   try {
     const region = templateToRegion(template, video.meta);
     const blob = await removeWatermark(file, {
       region,
       meta: video.meta,
       filename: video.name,
-      preset: s.settings.preset,
-      crf: s.settings.crf,
+      preset: profile.preset,
+      crf: profile.crf,
+      audioMode: profile.audio,
       onProgress: (p) => useAppStore.getState().updateJob(jobId, { progress: p }),
       onLog: (m) => {
         const short = jobId.slice(0, 8);
         useAppStore.getState().pushLog(`[${short}] ${m}`);
         useAppStore.getState().pushJobLog(jobId, m);
+        useAppStore.getState().pushJobStderr(jobId, m);
+      },
+      onCommand: (cmd) => {
+        useAppStore.getState().updateJob(jobId, { command: cmd });
+        useAppStore.getState().pushJobLog(jobId, `$ ${cmd}`);
       },
     });
     const exportId = crypto.randomUUID();
@@ -83,9 +105,59 @@ async function runJob(jobId: string) {
       finishedAt: Date.now(),
     });
   } catch (e) {
-    useAppStore.getState().updateJob(jobId, {
-      status: "error",
-      error: e instanceof Error ? e.message : String(e),
-    });
+    const msg = e instanceof Error ? e.message : String(e);
+    const maxRetries = useAppStore.getState().settings.maxRetries ?? 0;
+    const canRetry = attempt <= maxRetries; // attempts already incremented
+    useAppStore.getState().pushJobLog(jobId, `✗ attempt ${attempt} failed: ${msg}`);
+    if (canRetry) {
+      useAppStore.getState().pushJobLog(
+        jobId,
+        `↻ retrying with safer fallback (attempt ${attempt + 1}/${maxRetries + 1})`,
+      );
+      useAppStore.getState().updateJob(jobId, {
+        status: "queued",
+        progress: 0,
+        error: undefined,
+      });
+    } else {
+      useAppStore.getState().updateJob(jobId, {
+        status: "error",
+        error: msg,
+        finishedAt: Date.now(),
+      });
+    }
   }
+}
+
+interface AttemptProfile {
+  preset: "ultrafast" | "veryfast" | "fast" | "medium";
+  crf: number;
+  audio: "aac" | "copy" | "none";
+}
+
+/**
+ * Each successive attempt picks safer, more compatible settings:
+ *  1. user's chosen settings
+ *  2. slower preset, slightly higher CRF (smaller, more robust output)
+ *  3. medium preset, CRF 28, copy original audio (skip aac re-encode)
+ *  4+. medium preset, CRF 30, drop audio entirely
+ */
+function resolveProfile(
+  attempt: number,
+  settings: { preset: AttemptProfile["preset"]; crf: number },
+): AttemptProfile {
+  if (attempt <= 1) {
+    return { preset: settings.preset, crf: settings.crf, audio: "aac" };
+  }
+  if (attempt === 2) {
+    return {
+      preset: "fast",
+      crf: Math.min(28, settings.crf + 4),
+      audio: "aac",
+    };
+  }
+  if (attempt === 3) {
+    return { preset: "medium", crf: 28, audio: "copy" };
+  }
+  return { preset: "medium", crf: 30, audio: "none" };
 }
