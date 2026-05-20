@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { useEffect } from "react";
 import { startQueueRunner } from "@/lib/queue-runner";
+import { preloadFFmpeg } from "@/lib/ffmpeg-engine";
 
 const nav = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -23,6 +24,7 @@ export function AppLayout() {
 
   useEffect(() => {
     startQueueRunner();
+    preloadFFmpeg();
   }, []);
 
   return (
