@@ -3,8 +3,8 @@ import { Upload, Film, AlertCircle } from "lucide-react";
 import { extractThumbnail, probeVideo } from "@/lib/ffmpeg-engine";
 import { useAppStore } from "@/store/app-store";
 
-const MAX_SIZE = 100 * 1024 * 1024;
-const MAX_DURATION = 60;
+const MAX_SIZE = 500 * 1024 * 1024; // 500MB — "Long Video Support"
+const MAX_DURATION = 600; // 10 min
 const MAX_BATCH = 100;
 // Only formats reliably probeable by HTMLVideoElement in all browsers.
 const ALLOWED = /\.(mp4|mov|m4v|webm)$/i;
@@ -32,13 +32,13 @@ export function UploadZone({ compact = false }: { compact?: boolean }) {
             continue;
           }
           if (file.size > MAX_SIZE) {
-            setErr(`${file.name} exceeds 100MB`);
+            setErr(`${file.name} exceeds 500MB`);
             continue;
           }
           try {
             const meta = await probeVideo(file);
             if (meta.duration > MAX_DURATION + 0.5) {
-              setErr(`${file.name} exceeds 60s`);
+              setErr(`${file.name} exceeds 10 minutes`);
               continue;
             }
             const thumbnail = await extractThumbnail(file).catch(
@@ -95,7 +95,7 @@ export function UploadZone({ compact = false }: { compact?: boolean }) {
           {busy ? "Reading videos…" : "Drop videos here"}
         </h3>
         <p className="mt-1 text-sm text-muted-foreground">
-          MP4, MOV, WEBM · up to 100MB · 60s max · 100 files
+          MP4, MOV, WEBM supported · up to 500MB · 10 min max
         </p>
         <label className="mt-5 inline-flex cursor-pointer items-center justify-center rounded-lg bg-[image:var(--gradient-primary)] px-5 py-2.5 text-sm font-semibold text-primary-foreground transition-transform hover:scale-[1.02]">
           Browse files
