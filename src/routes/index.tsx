@@ -596,10 +596,13 @@ function HomePage() {
               finishedExports.length > 1 && (
                 <button
                   onClick={downloadAll}
+                  disabled={zipState.busy}
                   className="inline-flex items-center gap-1.5 rounded-lg bg-[image:var(--gradient-primary)] px-3 py-2 text-xs font-semibold text-primary-foreground"
                 >
-                  <Archive className="h-3.5 w-3.5" /> ZIP all (
-                  {finishedExports.length})
+                  <Archive className="h-3.5 w-3.5" />
+                  {zipState.busy
+                    ? `Packaging… ${zipState.percent}%`
+                    : `ZIP all (${finishedExports.length})`}
                 </button>
               )
             }
