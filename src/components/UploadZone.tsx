@@ -44,6 +44,10 @@ export function UploadZone({ compact = false }: { compact?: boolean }) {
             const thumbnail = await extractThumbnail(file).catch(
               () => undefined,
             );
+            // <input webkitdirectory> + folder drag-and-drop expose a
+            // relative path; preserve it so batch ZIPs keep folders.
+            const rel = (file as File & { webkitRelativePath?: string })
+              .webkitRelativePath;
             addVideo(
               {
                 id: crypto.randomUUID(),
@@ -51,6 +55,7 @@ export function UploadZone({ compact = false }: { compact?: boolean }) {
                 size: file.size,
                 meta,
                 thumbnail,
+                relativePath: rel && rel !== file.name ? rel : undefined,
               },
               file,
             );
@@ -65,6 +70,52 @@ export function UploadZone({ compact = false }: { compact?: boolean }) {
     [addVideo, existing],
   );
 
+  // Walks a dropped entry tree (folders) and yields all video files
+  // with their full relative path attached.
+  const walkEntries = useCallback(
+    async (items: DataTransferItemList): Promise<File[]> => {
+      const out: File[] = [];
+      const visit = async (entry: FileSystemEntry, prefix: string) => {
+        if (entry.isFile) {
+          await new Promise<void>((res) => {
+            (entry as FileSystemFileEntry).file((f) => {
+              const path = prefix ? `${prefix}/${f.name}` : f.name;
+              try {
+                Object.defineProperty(f, "webkitRelativePath", {
+                  value: path,
+                  configurable: true,
+                });
+              } catch {
+                /* noop */
+              }
+              out.push(f);
+              res();
+            }, () => res());
+          });
+        } else if (entry.isDirectory) {
+          const reader = (entry as FileSystemDirectoryEntry).createReader();
+          const readAll = (): Promise<FileSystemEntry[]> =>
+            new Promise((res) => reader.readEntries((e) => res(e), () => res([])));
+          let batch = await readAll();
+          while (batch.length) {
+            for (const child of batch) {
+              await visit(child, prefix ? `${prefix}/${entry.name}` : entry.name);
+            }
+            batch = await readAll();
+          }
+        }
+      };
+      const entries: FileSystemEntry[] = [];
+      for (let i = 0; i < items.length; i++) {
+        const entry = items[i].webkitGetAsEntry?.();
+        if (entry) entries.push(entry);
+      }
+      for (const e of entries) await visit(e, "");
+      return out;
+    },
+    [],
+  );
+
   return (
     <div
       onDragOver={(e) => {
@@ -72,9 +123,17 @@ export function UploadZone({ compact = false }: { compact?: boolean }) {
         setHover(true);
       }}
       onDragLeave={() => setHover(false)}
-      onDrop={(e) => {
+      onDrop={async (e) => {
         e.preventDefault();
         setHover(false);
+        const hasItems = e.dataTransfer.items && e.dataTransfer.items.length > 0;
+        if (hasItems) {
+          const fromTree = await walkEntries(e.dataTransfer.items);
+          if (fromTree.length) {
+            handle(fromTree);
+            return;
+          }
+        }
         if (e.dataTransfer.files) handle(e.dataTransfer.files);
       }}
       className={`relative rounded-2xl border-2 border-dashed transition-all ${
@@ -103,6 +162,18 @@ export function UploadZone({ compact = false }: { compact?: boolean }) {
             type="file"
             multiple
             accept=".mp4,.mov,.m4v,.webm,video/mp4,video/quicktime,video/webm"
+            className="hidden"
+            onChange={(e) => e.target.files && handle(e.target.files)}
+          />
+        </label>
+        <label className="mt-2 inline-flex cursor-pointer items-center text-[11px] text-muted-foreground hover:text-foreground">
+          or upload an entire folder
+          <input
+            type="file"
+            multiple
+            // @ts-expect-error — non-standard but widely supported
+            webkitdirectory=""
+            directory=""
             className="hidden"
             onChange={(e) => e.target.files && handle(e.target.files)}
           />
