@@ -10,13 +10,20 @@
  */
 
 export const CORE_VERSION = "0.12.9";
+const CORE_CACHE_REVISION = "2";
+const CORE_CACHE_TOKEN = `${CORE_VERSION}-r${CORE_CACHE_REVISION}`;
 const CORE_PATH = `/ffmpeg-core/${CORE_VERSION}`;
-const CACHE_NAME = `ffmpeg-core-${CORE_VERSION}`;
+const CACHE_NAME = `ffmpeg-core-${CORE_CACHE_TOKEN}`;
 const LEGACY_DB_NAME = "ffmpeg-core-cache";
 
 export const CORE_FILES = [
-  { path: "ffmpeg-core.js", mime: "text/javascript" },
-  { path: "ffmpeg-core.wasm", mime: "application/wasm" },
+  {
+    path: "ffmpeg-core.js",
+    mime: "text/javascript",
+    minBytes: 50_000,
+    signature: "export default createFFmpegCore",
+  },
+  { path: "ffmpeg-core.wasm", mime: "application/wasm", minBytes: 1_000_000 },
 ] as const;
 
 export type CacheStatus = "idle" | "checking" | "downloading" | "ready" | "error";
@@ -97,6 +104,12 @@ async function deleteLegacyIDB() {
 async function registerCoreServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
   try {
+    const registrations = await navigator.serviceWorker.getRegistrations();
+    await Promise.all(
+      registrations
+        .filter((reg) => new URL(reg.scope).pathname === "/ffmpeg-core/")
+        .map((reg) => reg.unregister()),
+    );
     const reg = await navigator.serviceWorker.register("/ffmpeg-core-sw.js", {
       scope: "/",
     });
@@ -107,7 +120,7 @@ async function registerCoreServiceWorker() {
 }
 
 function coreUrl(path: string) {
-  return `${CORE_PATH}/${path}`;
+  return `${CORE_PATH}/${path}?v=${CORE_CACHE_TOKEN}`;
 }
 
 async function hasUsableCoreCache(cache: Cache): Promise<boolean> {
