@@ -70,7 +70,7 @@ async function fetchWithProgress(
   mime: string,
   onChunk: (delta: number, totalHint: number) => void,
 ): Promise<Blob> {
-  const r = await fetch(url, { cache: "reload" });
+  const r = await fetch(url, { cache: "no-store" });
   if (!r.ok) throw new Error(`HTTP ${r.status} ${url}`);
   const totalHint = Number(r.headers.get("content-length") || 0);
   if (!r.body) {
@@ -124,10 +124,20 @@ function coreUrl(path: string) {
 }
 
 async function hasUsableCoreCache(cache: Cache): Promise<boolean> {
-  const matches = await Promise.all(
-    CORE_FILES.map(async (file) => cache.match(coreUrl(file.path))),
+  const checks = await Promise.all(
+    CORE_FILES.map(async (file) => {
+      const res = await cache.match(coreUrl(file.path));
+      if (!res?.ok) return false;
+      const blob = await res.blob();
+      if (blob.size < file.minBytes) return false;
+      if ("signature" in file) {
+        const text = await blob.text();
+        return text.includes(file.signature);
+      }
+      return true;
+    }),
   );
-  return matches.every(Boolean);
+  return checks.every(Boolean);
 }
 
 async function warmCoreCache(): Promise<void> {
@@ -173,20 +183,6 @@ async function warmCoreCache(): Promise<void> {
   setState({ status: "ready", loaded: finalTotal, total: finalTotal, fromCache: false });
 }
 
-async function verifyCoreReachable(): Promise<void> {
-  await Promise.all(
-    CORE_FILES.map(async (file) => {
-      const response = await fetch(coreUrl(file.path), {
-        method: "HEAD",
-        cache: "no-store",
-      });
-      if (!response.ok) {
-        throw new Error(`FFmpeg core file missing: ${file.path} (${response.status})`);
-      }
-    }),
-  );
-}
-
 /**
  * Returns stable same-origin URLs for the core js + wasm files. They are safe
  * for importScripts() and are cached for offline use by Cache Storage/SW.
@@ -198,11 +194,8 @@ export async function getCoreURLs(): Promise<{
   setState({ status: "checking", loaded: 0, total: 0, error: undefined });
   try {
     await deleteLegacyIDB();
-    await verifyCoreReachable();
     await registerCoreServiceWorker();
-    await warmCoreCache().catch(() => {
-      setState({ status: "ready", loaded: 0, total: 0, fromCache: false });
-    });
+    await warmCoreCache();
     return {
       coreURL: coreUrl("ffmpeg-core.js"),
       wasmURL: coreUrl("ffmpeg-core.wasm"),
