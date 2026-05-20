@@ -19,6 +19,13 @@ import {
   Upload as UploadIcon,
   MousePointerClick,
   DownloadCloud,
+  MoveHorizontal,
+  MoveVertical,
+  Wand,
+  SquareDashed,
+  Copy,
+  Save,
+  Bookmark,
 } from "lucide-react";
 import JSZip from "jszip";
 import { useAppStore, type Template } from "@/store/app-store";
@@ -30,12 +37,42 @@ export const Route = createFileRoute("/")({
   component: HomePage,
 });
 
-const FILL_MODES: { value: FillMode; label: string }[] = [
-  { value: "horizontal", label: "Horizontal stretch" },
-  { value: "vertical", label: "Vertical stretch" },
-  { value: "auto", label: "Auto (best direction)" },
-  { value: "edge", label: "Edge expand" },
-  { value: "clone", label: "Clone adjacent" },
+const FILL_MODES: {
+  value: FillMode;
+  label: string;
+  hint: string;
+  icon: React.ReactNode;
+}[] = [
+  {
+    value: "auto",
+    label: "Auto",
+    hint: "Pick the best direction automatically",
+    icon: <Wand className="h-3.5 w-3.5" />,
+  },
+  {
+    value: "horizontal",
+    label: "Horizontal",
+    hint: "Stretch pixels from the sides",
+    icon: <MoveHorizontal className="h-3.5 w-3.5" />,
+  },
+  {
+    value: "vertical",
+    label: "Vertical",
+    hint: "Stretch pixels from top/bottom",
+    icon: <MoveVertical className="h-3.5 w-3.5" />,
+  },
+  {
+    value: "edge",
+    label: "Edge",
+    hint: "Expand the nearest edge strip",
+    icon: <SquareDashed className="h-3.5 w-3.5" />,
+  },
+  {
+    value: "clone",
+    label: "Clone",
+    hint: "Copy an adjacent block of pixels",
+    icon: <Copy className="h-3.5 w-3.5" />,
+  },
 ];
 
 function downloadBlob(blob: Blob, name: string) {
