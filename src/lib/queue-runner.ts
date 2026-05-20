@@ -137,26 +137,30 @@ interface AttemptProfile {
 
 /**
  * Each successive attempt picks safer, more compatible settings:
- *  1. user's chosen settings
- *  2. slower preset, slightly higher CRF (smaller, more robust output)
- *  3. medium preset, CRF 28, copy original audio (skip aac re-encode)
- *  4+. medium preset, CRF 30, drop audio entirely
+ *  1. user's chosen settings + audio stream-copy (fastest path)
+ *  2. user's chosen settings + AAC re-encode (handles incompatible source audio)
+ *  3. fast preset, slightly higher CRF, AAC re-encode (more robust output)
+ *  4. medium preset, CRF 28, copy audio (skip re-encode entirely)
+ *  5+. medium preset, CRF 30, drop audio (last resort)
  */
 function resolveProfile(
   attempt: number,
   settings: { preset: AttemptProfile["preset"]; crf: number },
 ): AttemptProfile {
   if (attempt <= 1) {
-    return { preset: settings.preset, crf: settings.crf, audio: "aac" };
+    return { preset: settings.preset, crf: settings.crf, audio: "copy" };
   }
   if (attempt === 2) {
+    return { preset: settings.preset, crf: settings.crf, audio: "aac" };
+  }
+  if (attempt === 3) {
     return {
       preset: "fast",
       crf: Math.min(28, settings.crf + 4),
       audio: "aac",
     };
   }
-  if (attempt === 3) {
+  if (attempt === 4) {
     return { preset: "medium", crf: 28, audio: "copy" };
   }
   return { preset: "medium", crf: 30, audio: "none" };
