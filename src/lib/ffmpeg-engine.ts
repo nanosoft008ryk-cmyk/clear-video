@@ -1,6 +1,6 @@
 import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { fetchFile } from "@ffmpeg/util";
-import { getCoreBlobURLs } from "./ffmpeg-cache";
+import { getCoreURLs } from "./ffmpeg-cache";
 
 let _ffmpeg: FFmpeg | null = null;
 let _loading: Promise<FFmpeg> | null = null;
@@ -21,7 +21,7 @@ export async function getFFmpeg(): Promise<FFmpeg> {
         }
       }
     });
-    const { coreURL, wasmURL } = await getCoreBlobURLs();
+    const { coreURL, wasmURL } = await getCoreURLs();
     await ff.load({ coreURL, wasmURL });
     _ffmpeg = ff;
     return ff;
