@@ -15,8 +15,13 @@ export function AppLayout() {
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
-    startQueueRunner();
-    preloadFFmpeg();
+    void useAppStore
+      .getState()
+      .rehydrateFromIDB()
+      .finally(() => {
+        startQueueRunner();
+        preloadFFmpeg();
+      });
   }, []);
 
   const statusLabel =
