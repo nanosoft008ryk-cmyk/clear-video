@@ -1,80 +1,23 @@
 /**
- * Persistent IndexedDB cache for the FFmpeg core (~30 MB) so it only
- * downloads once and is available offline afterwards.
+ * Stable local/offline cache for the FFmpeg core.
  *
- * Exposes a tiny subscribe/getState API that the app-store mirrors so
- * UI components can render a download progress and an "offline ready"
- * indicator without coupling the engine to React.
+ * Important: FFmpeg's worker imports ffmpeg-core.js with importScripts().
+ * Some browsers reject Blob URLs created from IndexedDB-cached scripts, even
+ * when the MIME type is re-applied. To eliminate the recurring
+ * "failed to import ffmpeg-core.js" error, the engine now loads versioned,
+ * same-origin core files from /public and uses Cache Storage + a service
+ * worker only for persistence/offline serving.
  */
 
-const DB_NAME = "ffmpeg-core-cache";
-const STORE = "files";
-const VERSION = 1;
+export const CORE_VERSION = "0.12.9";
+const CORE_PATH = `/ffmpeg-core/${CORE_VERSION}`;
+const CACHE_NAME = `ffmpeg-core-${CORE_VERSION}`;
+const LEGACY_DB_NAME = "ffmpeg-core-cache";
 
-export const CORE_VERSION = "0.12.10";
 export const CORE_FILES = [
   { path: "ffmpeg-core.js", mime: "text/javascript" },
   { path: "ffmpeg-core.wasm", mime: "application/wasm" },
 ] as const;
-
-const CORE_BASES = [
-  `https://unpkg.com/@ffmpeg/core@${CORE_VERSION}/dist/umd`,
-  `https://cdn.jsdelivr.net/npm/@ffmpeg/core@${CORE_VERSION}/dist/umd`,
-];
-
-function openDB(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, VERSION);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
-
-async function idbGet(key: string): Promise<Blob | undefined> {
-  try {
-    const db = await openDB();
-    return await new Promise<Blob | undefined>((resolve, reject) => {
-      const tx = db.transaction(STORE, "readonly");
-      const r = tx.objectStore(STORE).get(key);
-      r.onsuccess = () => resolve(r.result as Blob | undefined);
-      r.onerror = () => reject(r.error);
-    });
-  } catch {
-    return undefined;
-  }
-}
-
-async function idbPut(key: string, value: Blob): Promise<void> {
-  try {
-    const db = await openDB();
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(STORE, "readwrite");
-      tx.objectStore(STORE).put(value, key);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
-  } catch {
-    /* cache write failures are non-fatal */
-  }
-}
-
-async function idbClear(): Promise<void> {
-  try {
-    const db = await openDB();
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(STORE, "readwrite");
-      tx.objectStore(STORE).clear();
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
-  } catch {
-    /* noop */
-  }
-}
 
 export type CacheStatus = "idle" | "checking" | "downloading" | "ready" | "error";
 
@@ -120,7 +63,7 @@ async function fetchWithProgress(
   mime: string,
   onChunk: (delta: number, totalHint: number) => void,
 ): Promise<Blob> {
-  const r = await fetch(url, { cache: "force-cache" });
+  const r = await fetch(url, { cache: "reload" });
   if (!r.ok) throw new Error(`HTTP ${r.status} ${url}`);
   const totalHint = Number(r.headers.get("content-length") || 0);
   if (!r.body) {
@@ -141,102 +84,115 @@ async function fetchWithProgress(
   return new Blob(chunks, { type: mime });
 }
 
-async function fetchCoreFile(
-  path: string,
-  mime: string,
-  onChunk: (d: number, t: number) => void,
-): Promise<Blob> {
-  let lastErr: unknown;
-  for (const base of CORE_BASES) {
-    try {
-      return await fetchWithProgress(`${base}/${path}`, mime, onChunk);
-    } catch (e) {
-      lastErr = e;
-    }
+async function deleteLegacyIDB() {
+  if (!("indexedDB" in window)) return;
+  await new Promise<void>((resolve) => {
+    const req = indexedDB.deleteDatabase(LEGACY_DB_NAME);
+    req.onsuccess = () => resolve();
+    req.onerror = () => resolve();
+    req.onblocked = () => resolve();
+  });
+}
+
+async function registerCoreServiceWorker() {
+  if (!("serviceWorker" in navigator)) return;
+  try {
+    const reg = await navigator.serviceWorker.register("/ffmpeg-core-sw.js", {
+      scope: "/",
+    });
+    await reg.update().catch(() => undefined);
+  } catch {
+    // Static same-origin files still load; offline caching is best-effort.
   }
-  throw lastErr instanceof Error ? lastErr : new Error("core fetch failed");
+}
+
+function coreUrl(path: string) {
+  return `${CORE_PATH}/${path}`;
+}
+
+async function hasUsableCoreCache(cache: Cache): Promise<boolean> {
+  const matches = await Promise.all(
+    CORE_FILES.map(async (file) => cache.match(coreUrl(file.path))),
+  );
+  return matches.every(Boolean);
+}
+
+async function warmCoreCache(): Promise<void> {
+  if (!("caches" in window)) return;
+  const cache = await caches.open(CACHE_NAME);
+  if (await hasUsableCoreCache(cache)) {
+    const sizes = await Promise.all(
+      CORE_FILES.map(async (file) => {
+        const res = await cache.match(coreUrl(file.path));
+        const blob = await res?.blob();
+        return blob?.size ?? 0;
+      }),
+    );
+    const total = sizes.reduce((a, b) => a + b, 0);
+    setState({ status: "ready", loaded: total, total, fromCache: true });
+    return;
+  }
+
+  setState({ status: "downloading", loaded: 0, total: 0, fromCache: false });
+  let loaded = 0;
+  let total = 0;
+  for (const file of CORE_FILES) {
+    let fileTotal = 0;
+    const blob = await fetchWithProgress(coreUrl(file.path), file.mime, (d, t) => {
+      loaded += d;
+      if (t && t !== fileTotal) {
+        total += t - fileTotal;
+        fileTotal = t;
+      }
+      setState({ loaded, total: Math.max(total, loaded) });
+    });
+    await cache.put(
+      coreUrl(file.path),
+      new Response(blob, {
+        headers: {
+          "Content-Type": file.mime,
+          "Cache-Control": "public, max-age=31536000, immutable",
+        },
+      }),
+    );
+  }
+  const finalTotal = Math.max(total, loaded);
+  setState({ status: "ready", loaded: finalTotal, total: finalTotal, fromCache: false });
+}
+
+async function verifyCoreReachable(): Promise<void> {
+  await Promise.all(
+    CORE_FILES.map(async (file) => {
+      const response = await fetch(coreUrl(file.path), {
+        method: "HEAD",
+        cache: "no-store",
+      });
+      if (!response.ok) {
+        throw new Error(`FFmpeg core file missing: ${file.path} (${response.status})`);
+      }
+    }),
+  );
 }
 
 /**
- * Returns blob URLs for the core js + wasm files, fetching and caching
- * them in IndexedDB on first run. Subsequent calls are instant offline.
+ * Returns stable same-origin URLs for the core js + wasm files. They are safe
+ * for importScripts() and are cached for offline use by Cache Storage/SW.
  */
-export async function getCoreBlobURLs(): Promise<{
+export async function getCoreURLs(): Promise<{
   coreURL: string;
   wasmURL: string;
 }> {
   setState({ status: "checking", loaded: 0, total: 0, error: undefined });
-
-  const cached = await Promise.all(
-    CORE_FILES.map(async (f) => ({
-      meta: f,
-      blob: await idbGet(`${CORE_VERSION}/${f.path}`),
-    })),
-  );
-
-  if (cached.every((c) => c.blob)) {
-    try {
-      // Always rewrap with explicit MIME — some browsers drop the type
-      // when round-tripping a Blob through IndexedDB, which then makes
-      // importScripts(blobURL) reject the core script.
-      const blobs = cached.map(
-        (c, i) => new Blob([c.blob!], { type: CORE_FILES[i].mime }),
-      );
-      const total = blobs.reduce((a, b) => a + b.size, 0);
-      setState({
-        status: "ready",
-        loaded: total,
-        total,
-        fromCache: true,
-      });
-      return {
-        coreURL: URL.createObjectURL(blobs[0]),
-        wasmURL: URL.createObjectURL(blobs[1]),
-      };
-    } catch {
-      // Fall through to fresh download
-      await idbClear();
-    }
-  }
-
-  setState({ status: "downloading", loaded: 0, total: 0, fromCache: false });
-
-  // Approximate total — content-length from CDN updates total once first
-  // response header lands; we accumulate from per-file totals as known.
-  let loaded = 0;
-  let total = 0;
-  const blobs: Blob[] = [];
   try {
-    for (const c of cached) {
-      if (c.blob) {
-        blobs.push(c.blob);
-        loaded += c.blob.size;
-        total += c.blob.size;
-        setState({ loaded, total });
-        continue;
-      }
-      let fileTotal = 0;
-      const blob = await fetchCoreFile(c.meta.path, c.meta.mime, (d, t) => {
-        loaded += d;
-        if (t && t !== fileTotal) {
-          total += t - fileTotal;
-          fileTotal = t;
-        }
-        setState({ loaded, total: Math.max(total, loaded) });
-      });
-      blobs.push(blob);
-      await idbPut(`${CORE_VERSION}/${c.meta.path}`, blob);
-    }
-    const finalTotal = blobs.reduce((a, b) => a + b.size, 0);
-    setState({
-      status: "ready",
-      loaded: finalTotal,
-      total: finalTotal,
-      fromCache: false,
+    await deleteLegacyIDB();
+    await verifyCoreReachable();
+    await registerCoreServiceWorker();
+    await warmCoreCache().catch(() => {
+      setState({ status: "ready", loaded: 0, total: 0, fromCache: false });
     });
     return {
-      coreURL: URL.createObjectURL(blobs[0]),
-      wasmURL: URL.createObjectURL(blobs[1]),
+      coreURL: coreUrl("ffmpeg-core.js"),
+      wasmURL: coreUrl("ffmpeg-core.wasm"),
     };
   } catch (e) {
     setState({
@@ -248,7 +204,10 @@ export async function getCoreBlobURLs(): Promise<{
 }
 
 export async function clearCoreCache(): Promise<void> {
-  await idbClear();
+  await Promise.all([
+    deleteLegacyIDB(),
+    "caches" in window ? caches.delete(CACHE_NAME) : Promise.resolve(false),
+  ]);
   setState({
     status: "idle",
     loaded: 0,

@@ -1,6 +1,6 @@
 import { X, Download, CheckCircle2, AlertTriangle, Loader2 } from "lucide-react";
 import { useAppStore } from "@/store/app-store";
-import { clearCoreCache, getCoreBlobURLs } from "@/lib/ffmpeg-cache";
+import { clearCoreCache, getCoreURLs } from "@/lib/ffmpeg-cache";
 
 export function SettingsDialog({
   open,
@@ -108,7 +108,7 @@ export function SettingsDialog({
             )}
             <div className="flex flex-wrap gap-2">
               <button
-                onClick={() => getCoreBlobURLs().catch(() => {})}
+                onClick={() => getCoreURLs().catch(() => {})}
                 disabled={
                   cache.status === "downloading" || cache.status === "checking"
                 }
