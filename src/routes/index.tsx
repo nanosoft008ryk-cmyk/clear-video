@@ -2,7 +2,6 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Rnd } from "react-rnd";
 import {
-  Trash2,
   Wand2,
   Layers,
   Download,
@@ -10,12 +9,22 @@ import {
   RefreshCcw,
   X,
   ChevronDown,
+  Zap,
+  Film,
+  Gauge,
+  ShieldCheck,
+  Lock,
+  Sparkles,
+  Cpu,
+  Upload as UploadIcon,
+  MousePointerClick,
+  DownloadCloud,
 } from "lucide-react";
 import JSZip from "jszip";
 import { useAppStore, type Template } from "@/store/app-store";
 import type { FillMode } from "@/lib/ffmpeg-engine";
 import { UploadZone } from "@/components/UploadZone";
-import { Pill, Progress, formatBytes, formatDuration } from "@/components/ui-bits";
+import { Pill, Progress, formatDuration } from "@/components/ui-bits";
 
 export const Route = createFileRoute("/")({
   component: HomePage,
@@ -173,11 +182,71 @@ function HomePage() {
     downloadBlob(out, `cleaned_videos_${Date.now()}.zip`);
   };
 
+  const settings = useAppStore((s) => s.settings);
+  const setSettings = useAppStore((s) => s.setSettings);
+  const quality: "basic" | "best" =
+    settings.crf <= 19 && settings.preset !== "ultrafast" ? "best" : "basic";
+  const setQuality = (q: "basic" | "best") => {
+    if (q === "basic") setSettings({ preset: "veryfast", crf: 23 });
+    else setSettings({ preset: "medium", crf: 18 });
+  };
+
   return (
-    <div className="space-y-10">
-      {/* Step 1: Upload */}
-      <section>
-        <StepHeader n={1} title="Upload your video" />
+    <div>
+      {/* Hero */}
+      <section className="relative overflow-hidden">
+        <div className="mx-auto max-w-6xl px-6 pt-16 pb-10 text-center">
+          <h1 className="mx-auto max-w-4xl text-5xl md:text-6xl font-bold tracking-tight leading-[1.05]">
+            <span className="gradient-text">Free</span>{" "}
+            <span className="text-foreground">Video Watermark Remover Online</span>
+          </h1>
+          <p className="mx-auto mt-6 max-w-2xl text-[15px] leading-relaxed text-muted-foreground">
+            Remove watermarks and logos from full videos online for free. No sign-up,
+            no blur, custom masks, 100% private processing in your browser, and HD or
+            4K export for TikTok, YouTube, Reels, UGC, and ads.
+          </p>
+          <div className="mt-7 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-[13px] text-muted-foreground">
+            <FeatureBadge icon={<Zap className="h-3.5 w-3.5" />} label="No Sign-Up" />
+            <FeatureBadge icon={<Film className="h-3.5 w-3.5" />} label="Long Video Support" />
+            <FeatureBadge icon={<Gauge className="h-3.5 w-3.5" />} label="Fast Processing" />
+            <FeatureBadge icon={<Lock className="h-3.5 w-3.5" />} label="100% Private" />
+          </div>
+        </div>
+      </section>
+
+      {/* Tool */}
+      <section id="tool" className="mx-auto max-w-5xl px-6 pb-16">
+        <p className="mb-4 text-center text-[12px] text-muted-foreground">
+          We recommend a desktop browser for the smoothest experience.
+        </p>
+
+        {/* Quality toggle */}
+        <div className="mb-6 flex justify-center">
+          <div className="inline-flex items-center rounded-full border border-border bg-card p-1">
+            <button
+              onClick={() => setQuality("basic")}
+              className={`rounded-full px-5 py-1.5 text-xs font-semibold transition ${
+                quality === "basic"
+                  ? "bg-[image:var(--gradient-primary)] text-primary-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Basic Quality
+            </button>
+            <button
+              onClick={() => setQuality("best")}
+              className={`inline-flex items-center gap-1.5 rounded-full px-5 py-1.5 text-xs font-semibold transition ${
+                quality === "best"
+                  ? "bg-[image:var(--gradient-primary)] text-primary-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Best Quality <Sparkles className="h-3 w-3" />
+            </button>
+          </div>
+        </div>
+
+        {/* Step 1 — Upload */}
         <UploadZone compact={videos.length > 0} />
         {videos.length > 0 && (
           <div className="mt-4 flex flex-wrap gap-2">
@@ -217,17 +286,16 @@ function HomePage() {
             ))}
           </div>
         )}
-      </section>
 
-      {/* Step 2: Mark */}
-      {active && (
-        <section>
+        {/* Step 2: Mark */}
+        {active && (
+        <div className="mt-10">
           <StepHeader
             n={2}
             title="Mark the watermark"
             sub="Drag and resize the box over the watermark, then choose how to fill it."
           />
-          <div className="overflow-hidden rounded-2xl border border-border bg-[oklch(0.12_0.018_270)]">
+          <div className="overflow-hidden rounded-2xl border border-border bg-[oklch(0.06_0.005_260)]">
             <div
               ref={stageRef}
               className="relative flex h-[420px] items-center justify-center p-4"
@@ -341,12 +409,12 @@ function HomePage() {
               </div>
             </div>
           )}
-        </section>
-      )}
+        </div>
+        )}
 
-      {/* Step 3: Results */}
-      {(jobs.length > 0 || finishedExports.length > 0) && (
-        <section id="results">
+        {/* Step 3: Results */}
+        {(jobs.length > 0 || finishedExports.length > 0) && (
+        <div id="results" className="mt-10">
           <StepHeader
             n={3}
             title="Download cleaned videos"
@@ -421,14 +489,151 @@ function HomePage() {
               );
             })}
           </div>
-        </section>
-      )}
+        </div>
+        )}
 
-      {videos.length === 0 && (
-        <div className="rounded-2xl border border-dashed border-border p-6 text-center text-xs text-muted-foreground">
-          100% local · FFmpeg WebAssembly · No uploads, no AI APIs.{" "}
-          {finishedExports.length > 0 &&
-            `· ${formatBytes(finishedExports.reduce((a, e) => a + e.size, 0))} ready`}
+        <p className="mt-6 text-center text-[11px] text-muted-foreground">
+          100% local · powered by FFmpeg WebAssembly · Your videos never leave your device.
+        </p>
+      </section>
+
+      {/* How it works */}
+      <section id="how" className="border-t border-border/60 bg-card/30">
+        <div className="mx-auto max-w-6xl px-6 py-20">
+          <div className="text-center">
+            <h2 className="text-3xl md:text-4xl font-bold tracking-tight">
+              How to Remove Video Watermarks Online
+            </h2>
+            <p className="mt-3 text-muted-foreground">
+              Three simple steps to get watermark-free videos in seconds
+            </p>
+          </div>
+          <div className="mt-12 grid gap-6 md:grid-cols-3">
+            <HowCard
+              n={1}
+              icon={<UploadIcon className="h-5 w-5" />}
+              title="Upload Your Video"
+              body="Upload any video from your device by clicking the upload button, dragging and dropping, or browsing. All major video formats are accepted."
+            />
+            <HowCard
+              n={2}
+              icon={<MousePointerClick className="h-5 w-5" />}
+              title="Mark the Watermark"
+              body="Drag a mask over the watermark and pick a fill mode. Save the mask as a preset to reuse it on every future upload."
+            />
+            <HowCard
+              n={3}
+              icon={<DownloadCloud className="h-5 w-5" />}
+              title="Download Clean Video"
+              body="Export in HD or 4K — it only takes a few seconds. Download single files or grab the entire batch as a ZIP. No watermark, no logo."
+            />
+          </div>
+        </div>
+      </section>
+
+      {/* Features */}
+      <section id="examples" className="mx-auto max-w-6xl px-6 py-20">
+        <div className="text-center">
+          <h2 className="text-3xl md:text-4xl font-bold tracking-tight">
+            Remove Watermarks from Any Video
+          </h2>
+          <p className="mt-3 text-muted-foreground">
+            For logos, text overlays, TikTok marks, YouTube Shorts, Reels, AI videos, and more
+          </p>
+        </div>
+        <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <Feature icon={<Gauge />} title="Fast Processing" body="WebAssembly FFmpeg pipeline runs entirely in your browser — no upload wait." />
+          <Feature icon={<ShieldCheck />} title="No Quality Loss" body="Smart fill modes preserve the surrounding pixels, edges and motion." />
+          <Feature icon={<Lock />} title="Private by Design" body="Your videos never leave your device. No accounts, no uploads, no tracking." />
+          <Feature icon={<Layers />} title="Batch Mode" body="Apply one mask to dozens of videos at once. Download the whole batch as ZIP." />
+          <Feature icon={<Cpu />} title="Offline Ready" body="The engine caches itself on first run. Use it on a plane, no internet needed." />
+          <Feature icon={<Sparkles />} title="HD &amp; 4K Export" body="Output keeps your source resolution up to 4K. Pick Basic or Best quality." />
+        </div>
+      </section>
+
+      {/* FAQ */}
+      <section id="faq" className="border-t border-border/60 bg-card/30">
+        <div className="mx-auto max-w-3xl px-6 py-20">
+          <h2 className="text-center text-3xl md:text-4xl font-bold tracking-tight">
+            Frequently Asked Questions
+          </h2>
+          <div className="mt-10 space-y-3">
+            <Faq q="Is it really free?">
+              Yes. No sign-up, no credit card, no watermark on the output. The tool runs entirely in your browser.
+            </Faq>
+            <Faq q="Are my videos uploaded anywhere?">
+              No. Processing happens locally with FFmpeg WebAssembly — your files never leave your device.
+            </Faq>
+            <Faq q="What formats are supported?">
+              MP4, MOV and WEBM up to 500MB / 10 minutes. Output is always MP4 (H.264 + AAC) for maximum compatibility.
+            </Faq>
+            <Faq q="Does it work on mobile?">
+              It works on modern mobile browsers, but processing is significantly faster on desktop. We recommend a laptop or desktop for long videos.
+            </Faq>
+            <Faq q="Will the watermark area look blurry?">
+              No blur. The fill modes stretch or clone adjacent pixels across the mask, which usually leaves a clean, natural-looking patch.
+            </Faq>
+          </div>
+        </div>
+      </section>
+
+      <footer className="border-t border-border/60 py-8 text-center text-[12px] text-muted-foreground">
+        © {new Date().getFullYear()} ClearVideo — Free Video Watermark Remover. Built with FFmpeg.
+      </footer>
+    </div>
+  );
+}
+
+function FeatureBadge({ icon, label }: { icon: React.ReactNode; label: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span className="text-[color:var(--success)]">{icon}</span>
+      {label}
+    </span>
+  );
+}
+
+function HowCard({ n, icon, title, body }: { n: number; icon: React.ReactNode; title: string; body: string }) {
+  return (
+    <div className="relative rounded-2xl border border-border bg-card p-6">
+      <div className="absolute -top-3 left-6 rounded-full bg-[image:var(--gradient-primary)] px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-primary-foreground">
+        Step {n}
+      </div>
+      <div className="grid h-10 w-10 place-items-center rounded-xl bg-primary/15 text-primary">
+        {icon}
+      </div>
+      <h3 className="mt-4 text-lg font-semibold">{title}</h3>
+      <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{body}</p>
+    </div>
+  );
+}
+
+function Feature({ icon, title, body }: { icon: React.ReactNode; title: string; body: string }) {
+  return (
+    <div className="rounded-2xl border border-border bg-card p-5">
+      <div className="grid h-9 w-9 place-items-center rounded-lg bg-primary/15 text-primary [&>svg]:h-4 [&>svg]:w-4">
+        {icon}
+      </div>
+      <h3 className="mt-3 text-sm font-semibold">{title}</h3>
+      <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">{body}</p>
+    </div>
+  );
+}
+
+function Faq({ q, children }: { q: string; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="rounded-xl border border-border bg-card">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left text-sm font-medium"
+      >
+        {q}
+        <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div className="px-5 pb-5 text-sm leading-relaxed text-muted-foreground">
+          {children}
         </div>
       )}
     </div>
