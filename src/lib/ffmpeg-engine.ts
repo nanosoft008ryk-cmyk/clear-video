@@ -245,7 +245,9 @@ function buildFilter(
   const ph = Math.floor(h);
 
   // Pad to even dimensions for libx264 + yuv420p compatibility.
-  return `[0:v]split=2[base][src];[src]crop=${sw}:${sh}:${sx}:${sy},scale=${pw}:${ph}:flags=lanczos[patch];[base][patch]overlay=${px}:${py}:format=auto,pad=ceil(iw/2)*2:ceil(ih/2)*2[outv]`;
+  // Bilinear is dramatically faster than lanczos and visually identical for
+  // the small neighbouring patch we stretch over the watermark.
+  return `[0:v]split=2[base][src];[src]crop=${sw}:${sh}:${sx}:${sy},scale=${pw}:${ph}:flags=bilinear[patch];[base][patch]overlay=${px}:${py}:format=auto,pad=ceil(iw/2)*2:ceil(ih/2)*2[outv]`;
 }
 
 export interface ProcessOptions {
@@ -281,7 +283,11 @@ export async function removeWatermark(
     try {
       await ff.writeFile(inputName, await fetchFile(file));
       const filter = buildFilter(opts.region, opts.meta);
-      const audioMode = opts.audioMode ?? "aac";
+      // Default to stream-copying audio: re-encoding the whole audio track
+      // is often the slowest part of the pipeline and is unnecessary when
+      // the source codec is already MP4-compatible. The retry ladder
+      // automatically re-encodes to AAC if copy fails.
+      const audioMode = opts.audioMode ?? "copy";
       const audioArgs: string[] =
         audioMode === "none"
           ? ["-an"]
@@ -289,6 +295,7 @@ export async function removeWatermark(
             ? ["-map", "0:a?", "-c:a", "copy"]
             : ["-map", "0:a?", "-c:a", "aac", "-b:a", "128k"];
       const args = [
+        "-threads", "0",
         "-i", inputName,
         "-filter_complex", filter,
         "-map", "[outv]",
@@ -299,6 +306,7 @@ export async function removeWatermark(
         "-tune", "fastdecode",
         "-pix_fmt", "yuv420p",
         "-movflags", "+faststart",
+        "-avoid_negative_ts", "make_zero",
         "-y",
         outputName,
       ];
