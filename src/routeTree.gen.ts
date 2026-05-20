@@ -10,12 +10,18 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as ProcessingRouteImport } from './routes/processing'
+import { Route as ExportsRouteImport } from './routes/exports'
 import { Route as EditorRouteImport } from './routes/editor'
 import { Route as IndexRouteImport } from './routes/index'
 
 const ProcessingRoute = ProcessingRouteImport.update({
   id: '/processing',
   path: '/processing',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ExportsRoute = ExportsRouteImport.update({
+  id: '/exports',
+  path: '/exports',
   getParentRoute: () => rootRouteImport,
 } as any)
 const EditorRoute = EditorRouteImport.update({
@@ -32,30 +38,34 @@ const IndexRoute = IndexRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/editor': typeof EditorRoute
+  '/exports': typeof ExportsRoute
   '/processing': typeof ProcessingRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/editor': typeof EditorRoute
+  '/exports': typeof ExportsRoute
   '/processing': typeof ProcessingRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/editor': typeof EditorRoute
+  '/exports': typeof ExportsRoute
   '/processing': typeof ProcessingRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/editor' | '/processing'
+  fullPaths: '/' | '/editor' | '/exports' | '/processing'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/editor' | '/processing'
-  id: '__root__' | '/' | '/editor' | '/processing'
+  to: '/' | '/editor' | '/exports' | '/processing'
+  id: '__root__' | '/' | '/editor' | '/exports' | '/processing'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   EditorRoute: typeof EditorRoute
+  ExportsRoute: typeof ExportsRoute
   ProcessingRoute: typeof ProcessingRoute
 }
 
@@ -66,6 +76,13 @@ declare module '@tanstack/react-router' {
       path: '/processing'
       fullPath: '/processing'
       preLoaderRoute: typeof ProcessingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/exports': {
+      id: '/exports'
+      path: '/exports'
+      fullPath: '/exports'
+      preLoaderRoute: typeof ExportsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/editor': {
@@ -88,6 +105,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   EditorRoute: EditorRoute,
+  ExportsRoute: ExportsRoute,
   ProcessingRoute: ProcessingRoute,
 }
 export const routeTree = rootRouteImport
