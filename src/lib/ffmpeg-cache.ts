@@ -175,18 +175,28 @@ export async function getCoreBlobURLs(): Promise<{
   );
 
   if (cached.every((c) => c.blob)) {
-    const blobs = cached.map((c) => c.blob!);
-    const total = blobs.reduce((a, b) => a + b.size, 0);
-    setState({
-      status: "ready",
-      loaded: total,
-      total,
-      fromCache: true,
-    });
-    return {
-      coreURL: URL.createObjectURL(blobs[0]),
-      wasmURL: URL.createObjectURL(blobs[1]),
-    };
+    try {
+      // Always rewrap with explicit MIME — some browsers drop the type
+      // when round-tripping a Blob through IndexedDB, which then makes
+      // importScripts(blobURL) reject the core script.
+      const blobs = cached.map(
+        (c, i) => new Blob([c.blob!], { type: CORE_FILES[i].mime }),
+      );
+      const total = blobs.reduce((a, b) => a + b.size, 0);
+      setState({
+        status: "ready",
+        loaded: total,
+        total,
+        fromCache: true,
+      });
+      return {
+        coreURL: URL.createObjectURL(blobs[0]),
+        wasmURL: URL.createObjectURL(blobs[1]),
+      };
+    } catch {
+      // Fall through to fresh download
+      await idbClear();
+    }
   }
 
   setState({ status: "downloading", loaded: 0, total: 0, fromCache: false });
