@@ -1,78 +1,49 @@
-import { Link, Outlet, useRouterState } from "@tanstack/react-router";
-import {
-  LayoutDashboard,
-  Scissors,
-  Activity,
-  Download,
-  Settings as SettingsIcon,
-  Sparkles,
-} from "lucide-react";
-import { useEffect } from "react";
+import { Outlet } from "@tanstack/react-router";
+import { Sparkles, Settings as SettingsIcon } from "lucide-react";
+import { useEffect, useState } from "react";
 import { startQueueRunner } from "@/lib/queue-runner";
 import { preloadFFmpeg } from "@/lib/ffmpeg-engine";
 import { useAppStore } from "@/store/app-store";
-
-const nav = [
-  { to: "/", label: "Dashboard", icon: LayoutDashboard },
-  { to: "/editor", label: "Editor", icon: Scissors },
-  { to: "/processing", label: "Processing", icon: Activity },
-  { to: "/exports", label: "Exports", icon: Download },
-  { to: "/settings", label: "Settings", icon: SettingsIcon },
-] as const;
+import { SettingsDialog } from "@/components/SettingsDialog";
 
 export function AppLayout() {
-  const pathname = useRouterState({ select: (s) => s.location.pathname });
   const cache = useAppStore((s) => s.coreCache);
   const pct =
     cache.total > 0
       ? Math.min(100, Math.round((cache.loaded / cache.total) * 100))
       : 0;
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
     startQueueRunner();
     preloadFFmpeg();
   }, []);
 
+  const statusLabel =
+    cache.status === "ready"
+      ? "Engine ready · offline"
+      : cache.status === "downloading"
+        ? `Downloading core ${pct}%`
+        : cache.status === "checking"
+          ? "Checking cache…"
+          : cache.status === "error"
+            ? "Engine offline error"
+            : "Engine idle";
+
   return (
-    <div className="flex min-h-screen w-full">
-      <aside className="hidden lg:flex w-64 shrink-0 flex-col border-r border-border bg-sidebar">
-        <div className="flex items-center gap-2 px-6 py-6">
-          <div className="grid h-9 w-9 place-items-center rounded-lg bg-[image:var(--gradient-primary)] glow">
-            <Sparkles className="h-5 w-5 text-primary-foreground" />
-          </div>
-          <div className="leading-tight">
-            <div className="text-sm font-semibold">Bulk Video</div>
-            <div className="text-xs text-muted-foreground">Watermark Remover</div>
-          </div>
-        </div>
-        <nav className="flex-1 px-3 py-2 space-y-1">
-          {nav.map((n) => {
-            const active =
-              n.to === "/" ? pathname === "/" : pathname.startsWith(n.to);
-            const Icon = n.icon;
-            return (
-              <Link
-                key={n.to}
-                to={n.to}
-                className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all ${
-                  active
-                    ? "bg-sidebar-accent text-foreground shadow-sm"
-                    : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground"
-                }`}
-              >
-                <Icon className="h-4 w-4" />
-                {n.label}
-              </Link>
-            );
-          })}
-        </nav>
-        <div className="p-4 text-xs text-muted-foreground">
-          <div className="rounded-lg glass p-3">
-            <div className="font-medium text-foreground">100% Local</div>
-            <div className="mt-1">
-              FFmpeg WASM processes videos in your browser. Nothing is uploaded.
+    <div className="min-h-screen w-full">
+      <header className="sticky top-0 z-30 border-b border-border bg-background/80 backdrop-blur">
+        <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-3">
+          <div className="flex items-center gap-2.5">
+            <div className="grid h-8 w-8 place-items-center rounded-lg bg-[image:var(--gradient-primary)] glow">
+              <Sparkles className="h-4 w-4 text-primary-foreground" />
             </div>
-            <div className="mt-2 flex items-center gap-2">
+            <div className="text-sm font-semibold tracking-tight">
+              Watermark Remover
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="hidden sm:inline-flex items-center gap-2 text-xs text-muted-foreground">
               <span
                 className={`inline-block h-1.5 w-1.5 rounded-full ${
                   cache.status === "ready"
@@ -82,24 +53,21 @@ export function AppLayout() {
                       : "bg-accent animate-pulse"
                 }`}
               />
-              <span className="text-[11px]">
-                {cache.status === "ready"
-                  ? "Engine ready · offline"
-                  : cache.status === "downloading"
-                    ? `Downloading core ${pct}%`
-                    : cache.status === "checking"
-                      ? "Checking cache…"
-                      : cache.status === "error"
-                        ? "Engine offline error"
-                        : "Engine idle"}
-              </span>
-            </div>
+              {statusLabel}
+            </span>
+            <button
+              onClick={() => setSettingsOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs hover:bg-secondary"
+            >
+              <SettingsIcon className="h-3.5 w-3.5" /> Settings
+            </button>
           </div>
         </div>
-      </aside>
-      <main className="flex-1 min-w-0">
+      </header>
+      <main className="mx-auto max-w-5xl px-6 py-8">
         <Outlet />
       </main>
+      <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   );
 }
