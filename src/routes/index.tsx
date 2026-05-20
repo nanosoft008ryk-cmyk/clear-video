@@ -260,6 +260,12 @@ function HomePage() {
     jobs.some((j) => j.id === e.jobId && j.status === "done"),
   );
 
+  const allJobsSettled =
+    jobs.length > 0 &&
+    jobs.every((j) => j.status === "done" || j.status === "cancelled");
+  const allJobsDone =
+    jobs.length > 0 && jobs.every((j) => j.status === "done");
+
   const downloadAll = async () => {
     const zip = new JSZip();
     for (const e of finishedExports) {
@@ -557,6 +563,45 @@ function HomePage() {
               )
             }
           />
+          {allJobsDone && finishedExports.length > 0 && (
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[color:var(--success)]/40 bg-[color:var(--success)]/10 px-4 py-3">
+              <div className="flex items-center gap-2 text-sm">
+                <span className="grid h-7 w-7 place-items-center rounded-full bg-[color:var(--success)]/20 text-[color:var(--success)]">
+                  ✓
+                </span>
+                <div>
+                  <div className="font-semibold text-foreground">
+                    All {finishedExports.length} video
+                    {finishedExports.length > 1 ? "s" : ""} ready
+                  </div>
+                  <div className="text-[11px] text-muted-foreground">
+                    Processing complete — grab the entire batch in one click.
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={downloadAll}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-[image:var(--gradient-primary)] px-4 py-2 text-sm font-semibold text-primary-foreground shadow-lg"
+              >
+                <Archive className="h-4 w-4" /> Download all (ZIP)
+              </button>
+            </div>
+          )}
+          {allJobsSettled && !allJobsDone && finishedExports.length > 0 && (
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-card px-4 py-3">
+              <div className="text-xs text-muted-foreground">
+                {finishedExports.length} of {jobs.length} finished — some jobs
+                failed or were cancelled.
+              </div>
+              <button
+                onClick={downloadAll}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-semibold hover:bg-secondary"
+              >
+                <Archive className="h-3.5 w-3.5" /> Download finished (
+                {finishedExports.length})
+              </button>
+            </div>
+          )}
           <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card">
             {jobs.map((j) => {
               const v = videos.find((x) => x.id === j.videoId);
