@@ -16,6 +16,7 @@ export function UploadZone({ compact = false }: { compact?: boolean }) {
   const [busy, setBusy] = useState(false);
   const addVideo = useAppStore((s) => s.addVideo);
   const updateVideo = useAppStore((s) => s.updateVideo);
+  const removeVideo = useAppStore((s) => s.removeVideo);
   const existing = useAppStore((s) => s.videos.length);
 
   const handle = useCallback(
@@ -61,6 +62,7 @@ export function UploadZone({ compact = false }: { compact?: boolean }) {
             .then((meta) => {
               if (meta.duration && meta.duration > MAX_DURATION + 0.5) {
                 setErr(`${file.name} exceeds 10 minutes`);
+                removeVideo(id);
                 return;
               }
               updateVideo(id, { meta });
@@ -74,7 +76,7 @@ export function UploadZone({ compact = false }: { compact?: boolean }) {
         setBusy(false);
       }
     },
-    [addVideo, existing, updateVideo],
+    [addVideo, existing, removeVideo, updateVideo],
   );
 
   // Walks a dropped entry tree (folders) and yields all video files
