@@ -53,12 +53,7 @@ function withEngineLock<T>(fn: () => Promise<T>): Promise<T> {
   return next;
 }
 
-export type FillMode =
-  | "horizontal"
-  | "vertical"
-  | "auto"
-  | "edge"
-  | "clone";
+export type FillMode = "horizontal" | "vertical" | "auto" | "edge" | "clone";
 
 export interface WatermarkRegion {
   x: number;
@@ -112,8 +107,7 @@ export async function probeVideo(file: File): Promise<VideoMeta> {
     v.onloadedmetadata = tryResolve;
     v.onloadeddata = tryResolve;
     v.oncanplay = tryResolve;
-    v.onerror = () =>
-      finish(false, undefined, new Error("Could not read video metadata"));
+    v.onerror = () => finish(false, undefined, new Error("Could not read video metadata"));
   });
 }
 
@@ -156,10 +150,7 @@ export async function extractThumbnail(file: File): Promise<string> {
  * scales it to the watermark region, and overlays it.
  * No blur — pure pixel reconstruction via stretch-fill.
  */
-function buildFilter(
-  region: WatermarkRegion,
-  meta: VideoMeta,
-): string {
+function buildFilter(region: WatermarkRegion, meta: VideoMeta): string {
   const { x, y, width: w, height: h, fillMode } = region;
   const { width: W, height: H } = meta;
 
@@ -181,8 +172,14 @@ function buildFilter(
   let py = Math.floor(y) - M;
   let pw = Math.floor(w) + 2 * M;
   let ph = Math.floor(h) + 2 * M;
-  if (px < 0) { pw += px; px = 0; }
-  if (py < 0) { ph += py; py = 0; }
+  if (px < 0) {
+    pw += px;
+    px = 0;
+  }
+  if (py < 0) {
+    ph += py;
+    py = 0;
+  }
   if (px + pw > W) pw = W - px;
   if (py + ph > H) ph = H - py;
   pw = Math.max(4, pw - (pw % 2));
@@ -200,10 +197,10 @@ function buildFilter(
   // 4px of clean pixels on a side to consider it. fillMode lets the user
   // restrict sampling direction; "auto" / "clone" / "edge" use every
   // available side.
-  const wantH = fillMode === "horizontal" || fillMode === "auto" ||
-    fillMode === "clone" || fillMode === "edge";
-  const wantV = fillMode === "vertical" || fillMode === "auto" ||
-    fillMode === "clone" || fillMode === "edge";
+  const wantH =
+    fillMode === "horizontal" || fillMode === "auto" || fillMode === "clone" || fillMode === "edge";
+  const wantV =
+    fillMode === "vertical" || fillMode === "auto" || fillMode === "clone" || fillMode === "edge";
 
   if (wantH && leftRoom >= 4) {
     const sw = Math.min(pw, leftRoom);
@@ -225,10 +222,24 @@ function buildFilter(
   // Worst case: the box touches the frame on every restricted side. Fall
   // back to whatever single neighbour exists.
   if (sides.length === 0) {
-    if (leftRoom >= 4) sides.push({ sx: Math.max(0, Math.floor(x) - Math.min(pw, leftRoom)), sy: py, sw: Math.min(pw, leftRoom), sh: ph });
-    else if (rightRoom >= 4) sides.push({ sx: Math.floor(x + w), sy: py, sw: Math.min(pw, rightRoom), sh: ph });
-    else if (topRoom >= 4) sides.push({ sx: px, sy: Math.max(0, Math.floor(y) - Math.min(ph, topRoom)), sw: pw, sh: Math.min(ph, topRoom) });
-    else if (bottomRoom >= 4) sides.push({ sx: px, sy: Math.floor(y + h), sw: pw, sh: Math.min(ph, bottomRoom) });
+    if (leftRoom >= 4)
+      sides.push({
+        sx: Math.max(0, Math.floor(x) - Math.min(pw, leftRoom)),
+        sy: py,
+        sw: Math.min(pw, leftRoom),
+        sh: ph,
+      });
+    else if (rightRoom >= 4)
+      sides.push({ sx: Math.floor(x + w), sy: py, sw: Math.min(pw, rightRoom), sh: ph });
+    else if (topRoom >= 4)
+      sides.push({
+        sx: px,
+        sy: Math.max(0, Math.floor(y) - Math.min(ph, topRoom)),
+        sw: pw,
+        sh: Math.min(ph, topRoom),
+      });
+    else if (bottomRoom >= 4)
+      sides.push({ sx: px, sy: Math.floor(y + h), sw: pw, sh: Math.min(ph, bottomRoom) });
     else sides.push({ sx: 0, sy: 0, sw: pw, sh: ph }); // degenerate
   }
 
@@ -290,10 +301,7 @@ export interface ProcessOptions {
   onCommand?: (cmd: string) => void;
 }
 
-export async function removeWatermark(
-  file: File,
-  opts: ProcessOptions,
-): Promise<Blob> {
+export async function removeWatermark(file: File, opts: ProcessOptions): Promise<Blob> {
   return withEngineLock(async () => {
     const ff = await getFFmpeg();
     const stamp = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -302,8 +310,7 @@ export async function removeWatermark(
     const outputName = `out_${stamp}.mp4`;
 
     const progressHandler = ({ progress }: { progress: number }) => {
-      if (opts.onProgress)
-        opts.onProgress(Math.min(1, Math.max(0, progress)));
+      if (opts.onProgress) opts.onProgress(Math.min(1, Math.max(0, progress)));
     };
     ff.on("progress", progressHandler);
     if (opts.onLog) _logListeners.add(opts.onLog);
@@ -323,18 +330,29 @@ export async function removeWatermark(
             ? ["-map", "0:a?", "-c:a", "copy"]
             : ["-map", "0:a?", "-c:a", "aac", "-b:a", "128k"];
       const args = [
-        "-threads", "0",
-        "-i", inputName,
-        "-filter_complex", filter,
-        "-map", "[outv]",
+        "-threads",
+        "0",
+        "-i",
+        inputName,
+        "-filter_complex",
+        filter,
+        "-map",
+        "[outv]",
         ...audioArgs,
-        "-c:v", "libx264",
-        "-preset", opts.preset ?? "veryfast",
-        "-crf", String(opts.crf ?? 20),
-        "-tune", "fastdecode",
-        "-pix_fmt", "yuv420p",
-        "-movflags", "+faststart",
-        "-avoid_negative_ts", "make_zero",
+        "-c:v",
+        "libx264",
+        "-preset",
+        opts.preset ?? "veryfast",
+        "-crf",
+        String(opts.crf ?? 20),
+        "-tune",
+        "fastdecode",
+        "-pix_fmt",
+        "yuv420p",
+        "-movflags",
+        "+faststart",
+        "-avoid_negative_ts",
+        "make_zero",
         "-y",
         outputName,
       ];
