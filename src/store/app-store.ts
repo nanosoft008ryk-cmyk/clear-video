@@ -124,6 +124,7 @@ interface Store {
   pushJobStderr: (jobId: string, msg: string) => void;
   setCoreCache: (s: CacheState) => void;
   rehydrateFromIDB: () => Promise<void>;
+  updateVideo: (id: string, patch: Partial<VideoItem>) => void;
 }
 
 export const useAppStore = create<Store>()(
@@ -159,6 +160,24 @@ export const useAppStore = create<Store>()(
           relativePath: v.relativePath,
           file,
         }).catch(() => undefined);
+      },
+      updateVideo: (id, patch) => {
+        set((s) => ({
+          videos: s.videos.map((v) => (v.id === id ? { ...v, ...patch } : v)),
+        }));
+        const video = get().videos.find((v) => v.id === id);
+        const file = get().videoFiles.get(id);
+        if (video && file) {
+          void idbPutVideo({
+            id: video.id,
+            name: video.name,
+            size: video.size,
+            meta: video.meta,
+            thumbnail: video.thumbnail,
+            relativePath: video.relativePath,
+            file,
+          }).catch(() => undefined);
+        }
       },
       removeVideo: (id) => {
         get().videoFiles.delete(id);
@@ -305,13 +324,14 @@ export const useAppStore = create<Store>()(
           ]);
           const videoFiles = get().videoFiles;
           const exportBlobs = get().exportBlobs;
-          const videos: VideoItem[] = [];
+          const videosById = new Map(get().videos.map((v) => [v.id, v]));
           for (const v of vids) {
+            if (videoFiles.has(v.id)) continue;
             videoFiles.set(
               v.id,
               new File([v.file], v.name, { type: v.file.type || "video/mp4" }),
             );
-            videos.push({
+            videosById.set(v.id, {
               id: v.id,
               name: v.name,
               size: v.size,
@@ -320,10 +340,11 @@ export const useAppStore = create<Store>()(
               relativePath: v.relativePath,
             });
           }
-          const exports: ExportItem[] = [];
+          const exportsById = new Map(get().exports.map((e) => [e.id, e]));
           for (const e of exps) {
+            if (exportBlobs.has(e.id)) continue;
             exportBlobs.set(e.id, e.blob);
-            exports.push({
+            exportsById.set(e.id, {
               id: e.id,
               jobId: e.jobId,
               name: e.name,
@@ -337,7 +358,12 @@ export const useAppStore = create<Store>()(
               ? { ...j, status: "queued" as JobStatus, progress: 0 }
               : j,
           );
-          set({ videos, exports, jobs, hydrated: true });
+          set({
+            videos: Array.from(videosById.values()),
+            exports: Array.from(exportsById.values()),
+            jobs,
+            hydrated: true,
+          });
         } catch {
           set({ hydrated: true });
         }

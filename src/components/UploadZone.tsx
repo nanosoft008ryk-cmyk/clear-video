@@ -15,6 +15,8 @@ export function UploadZone({ compact = false }: { compact?: boolean }) {
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const addVideo = useAppStore((s) => s.addVideo);
+  const updateVideo = useAppStore((s) => s.updateVideo);
+  const removeVideo = useAppStore((s) => s.removeVideo);
   const existing = useAppStore((s) => s.videos.length);
 
   const handle = useCallback(
@@ -38,41 +40,43 @@ export function UploadZone({ compact = false }: { compact?: boolean }) {
             setErr(`${file.name} exceeds 500MB`);
             continue;
           }
-          // Best-effort probe. If metadata reading fails (some codecs/wrappers
-          // aren't supported by HTMLVideoElement even though FFmpeg handles
-          // them fine) we still add the file with a placeholder so the user
-          // sees it in the list and can mark/process it.
-          const meta = await probeVideo(file).catch(() => ({
+          const id = crypto.randomUUID();
+          const rel = (file as File & { webkitRelativePath?: string })
+            .webkitRelativePath;
+          const fallbackMeta = {
             width: 1280,
             height: 720,
             duration: 0,
-          }));
-          if (meta.duration && meta.duration > MAX_DURATION + 0.5) {
-            setErr(`${file.name} exceeds 10 minutes`);
-            continue;
-          }
-          const thumbnail = await extractThumbnail(file).catch(
-            () => undefined,
-          );
-          const rel = (file as File & { webkitRelativePath?: string })
-            .webkitRelativePath;
+          };
           addVideo(
             {
-              id: crypto.randomUUID(),
+              id,
               name: file.name,
               size: file.size,
-              meta,
-              thumbnail,
+              meta: fallbackMeta,
               relativePath: rel && rel !== file.name ? rel : undefined,
             },
             file,
           );
+          void probeVideo(file)
+            .then((meta) => {
+              if (meta.duration && meta.duration > MAX_DURATION + 0.5) {
+                setErr(`${file.name} exceeds 10 minutes`);
+                removeVideo(id);
+                return;
+              }
+              updateVideo(id, { meta });
+            })
+            .catch(() => undefined);
+          void extractThumbnail(file)
+            .then((thumbnail) => updateVideo(id, { thumbnail }))
+            .catch(() => undefined);
         }
       } finally {
         setBusy(false);
       }
     },
-    [addVideo, existing],
+    [addVideo, existing, removeVideo, updateVideo],
   );
 
   // Walks a dropped entry tree (folders) and yields all video files
@@ -166,7 +170,7 @@ export function UploadZone({ compact = false }: { compact?: boolean }) {
           <input
             type="file"
             multiple
-            accept=".mp4,.mov,.m4v,.webm,video/mp4,video/quicktime,video/webm"
+            accept=".mp4,.mov,.m4v,.webm,.mkv,.avi,.m2ts,.ts,.flv,.wmv,.3gp,video/*"
             className="hidden"
             onChange={(e) => {
               if (e.target.files) handle(e.target.files);
