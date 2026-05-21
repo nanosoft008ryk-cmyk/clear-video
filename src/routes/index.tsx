@@ -26,6 +26,7 @@ import {
   Copy,
   Save,
   Bookmark,
+  Trash2,
 } from "lucide-react";
 import JSZip from "jszip";
 import { useAppStore, type Template } from "@/store/app-store";
@@ -102,6 +103,7 @@ function HomePage() {
   const cancelJob = useAppStore((s) => s.cancelJob);
   const removeJob = useAppStore((s) => s.removeJob);
   const removeExport = useAppStore((s) => s.removeExport);
+  const clearJobs = useAppStore((s) => s.clearJobs);
 
   const [activeId, setActiveId] = useState<string | null>(null);
   const [box, setBox] = useState({ x: 40, y: 40, width: 200, height: 80 });
@@ -595,18 +597,32 @@ function HomePage() {
             n={3}
             title="Download cleaned videos"
             action={
-              finishedExports.length > 1 && (
-                <button
-                  onClick={downloadAll}
-                  disabled={zipState.busy}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-[image:var(--gradient-primary)] px-3 py-2 text-xs font-semibold text-primary-foreground"
-                >
-                  <Archive className="h-3.5 w-3.5" />
-                  {zipState.busy
-                    ? `Packaging… ${zipState.percent}%`
-                    : `ZIP all (${finishedExports.length})`}
-                </button>
-              )
+              <div className="flex items-center gap-2">
+                {jobs.some((j) => j.status !== "done") && (
+                  <button
+                    onClick={() => {
+                      if (confirm("Remove all queued, processing and failed jobs?")) clearJobs();
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-semibold text-muted-foreground hover:bg-destructive hover:text-destructive-foreground"
+                    title="Clear queue"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Clear queue
+                  </button>
+                )}
+                {finishedExports.length > 1 && (
+                  <button
+                    onClick={downloadAll}
+                    disabled={zipState.busy}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-[image:var(--gradient-primary)] px-3 py-2 text-xs font-semibold text-primary-foreground"
+                  >
+                    <Archive className="h-3.5 w-3.5" />
+                    {zipState.busy
+                      ? `Packaging… ${zipState.percent}%`
+                      : `ZIP all (${finishedExports.length})`}
+                  </button>
+                )}
+              </div>
             }
           />
           {allJobsDone && finishedExports.length > 0 && (
