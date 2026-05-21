@@ -163,6 +163,39 @@ function buildFilter(
   const { x, y, width: w, height: h, fillMode } = region;
   const { width: W, height: H } = meta;
 
+  // Primary strategy: ffmpeg's `delogo` filter. It rebuilds the masked
+  // rectangle by interpolating from the pixels immediately around it,
+  // so the surrounding background is preserved exactly and the seam
+  // dissolves into the source instead of showing a hard border.
+  //
+  // delogo requires the region to be strictly inside the frame (it reads
+  // from a 1px border around the box). We also need the rectangle to be
+  // at least a few pixels in each dimension. The `band` parameter widens
+  // the fuzzy blend ring so the join into the surrounding video is soft.
+  let dx = Math.max(1, Math.floor(x));
+  let dy = Math.max(1, Math.floor(y));
+  let dw = Math.floor(w);
+  let dh = Math.floor(h);
+  if (dx + dw >= W) dw = W - dx - 1;
+  if (dy + dh >= H) dh = H - dy - 1;
+  dw = Math.max(4, dw);
+  dh = Math.max(4, dh);
+  const band = Math.max(2, Math.min(8, Math.round(Math.min(dw, dh) * 0.04)));
+
+  // For very large regions delogo's interpolation gets blurry in the centre.
+  // In that case we fall back to the neighbour-patch overlay (with feathered
+  // alpha) which at least carries real texture into the middle.
+  const areaRatio = (dw * dh) / (W * H);
+  const useDelogo = areaRatio <= 0.06; // ~6% of frame; tweakable
+
+  if (useDelogo) {
+    return (
+      `[0:v]delogo=x=${dx}:y=${dy}:w=${dw}:h=${dh}:band=${band}:show=0,` +
+      `pad=ceil(iw/2)*2:ceil(ih/2)*2[outv]`
+    );
+  }
+
+  // Fallback path: feathered neighbour-patch overlay.
   // Margin (M) expands the patch beyond the marked region so its edges sit
   // over real video pixels we can feather into. Feather (F) is the width of
   // the soft alpha gradient that hides the seam.
