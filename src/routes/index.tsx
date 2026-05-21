@@ -104,6 +104,7 @@ function HomePage() {
   const removeJob = useAppStore((s) => s.removeJob);
   const removeExport = useAppStore((s) => s.removeExport);
   const clearJobs = useAppStore((s) => s.clearJobs);
+  const clearVideos = useAppStore((s) => s.clearVideos);
 
   const [activeId, setActiveId] = useState<string | null>(null);
   const [box, setBox] = useState({ x: 40, y: 40, width: 200, height: 80 });
@@ -388,41 +389,60 @@ function HomePage() {
         {/* Step 1 — Upload */}
         <UploadZone compact={videos.length > 0} />
         {videos.length > 0 && (
-          <div className="mt-4 flex flex-wrap gap-2">
-            {videos.map((v) => (
-              <button
-                key={v.id}
-                onClick={() => setActiveId(v.id)}
-                className={`group relative overflow-hidden rounded-lg border text-left transition ${
-                  v.id === activeId
-                    ? "border-primary ring-2 ring-primary/30"
-                    : "border-border hover:border-primary/40"
-                }`}
-              >
-                <div className="h-16 w-28 bg-muted">
-                  {v.thumbnail && (
-                    <img
-                      src={v.thumbnail}
-                      alt={v.name}
-                      className="h-full w-full object-cover"
-                    />
-                  )}
-                </div>
-                <div className="px-2 py-1 text-[10px] truncate w-28">
-                  {v.name}
-                </div>
-                <span
-                  role="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    removeVideo(v.id);
+          <div className="mt-4">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                {videos.length} video{videos.length > 1 ? "s" : ""} uploaded
+              </span>
+              {videos.length > 1 && (
+                <button
+                  onClick={() => {
+                    if (confirm("Remove all uploaded videos?")) clearVideos();
                   }}
-                  className="absolute right-1 top-1 grid h-5 w-5 place-items-center rounded bg-background/80 opacity-0 group-hover:opacity-100 hover:bg-destructive hover:text-destructive-foreground"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-semibold text-muted-foreground hover:bg-destructive hover:text-destructive-foreground"
+                  title="Clear uploads"
                 >
-                  <X className="h-3 w-3" />
-                </span>
-              </button>
-            ))}
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Clear uploads
+                </button>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {videos.map((v) => (
+                <button
+                  key={v.id}
+                  onClick={() => setActiveId(v.id)}
+                  className={`group relative overflow-hidden rounded-lg border text-left transition ${
+                    v.id === activeId
+                      ? "border-primary ring-2 ring-primary/30"
+                      : "border-border hover:border-primary/40"
+                  }`}
+                >
+                  <div className="h-16 w-28 bg-muted">
+                    {v.thumbnail && (
+                      <img
+                        src={v.thumbnail}
+                        alt={v.name}
+                        className="h-full w-full object-cover"
+                      />
+                    )}
+                  </div>
+                  <div className="px-2 py-1 text-[10px] truncate w-28">
+                    {v.name}
+                  </div>
+                  <span
+                    role="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      removeVideo(v.id);
+                    }}
+                    className="absolute right-1 top-1 grid h-5 w-5 place-items-center rounded bg-background/80 opacity-0 group-hover:opacity-100 hover:bg-destructive hover:text-destructive-foreground"
+                  >
+                    <X className="h-3 w-3" />
+                  </span>
+                </button>
+              ))}
+            </div>
           </div>
         )}
 
