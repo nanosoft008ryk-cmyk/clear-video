@@ -103,6 +103,7 @@ function HomePage() {
   const cancelJob = useAppStore((s) => s.cancelJob);
   const removeJob = useAppStore((s) => s.removeJob);
   const removeExport = useAppStore((s) => s.removeExport);
+  const clearJobs = useAppStore((s) => s.clearJobs);
 
   const [activeId, setActiveId] = useState<string | null>(null);
   const [box, setBox] = useState({ x: 40, y: 40, width: 200, height: 80 });
