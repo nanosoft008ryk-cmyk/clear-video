@@ -81,25 +81,39 @@ export async function probeVideo(file: File): Promise<VideoMeta> {
     v.preload = "metadata";
     v.muted = true;
     v.src = url;
+    let done = false;
+    const finish = (ok: boolean, meta?: VideoMeta, err?: Error) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      URL.revokeObjectURL(url);
+      if (ok && meta) resolve(meta);
+      else reject(err ?? new Error("Could not read video metadata"));
+    };
+    const tryResolve = () => {
+      const w = v.videoWidth;
+      const h = v.videoHeight;
+      const d = isFinite(v.duration) ? v.duration : 0;
+      if (w > 0 && h > 0) finish(true, { width: w, height: h, duration: d });
+    };
     const timer = setTimeout(() => {
-      URL.revokeObjectURL(url);
-      reject(new Error("Timed out reading video metadata"));
-    }, 8000);
-    v.onloadedmetadata = () => {
-      clearTimeout(timer);
-      const meta = {
-        width: v.videoWidth,
-        height: v.videoHeight,
-        duration: v.duration,
-      };
-      URL.revokeObjectURL(url);
-      resolve(meta);
-    };
-    v.onerror = () => {
-      clearTimeout(timer);
-      URL.revokeObjectURL(url);
-      reject(new Error("Could not read video metadata"));
-    };
+      // Last-ditch: if dimensions arrived but the duration event never did,
+      // accept them rather than rejecting the whole upload.
+      if (v.videoWidth > 0 && v.videoHeight > 0) {
+        finish(true, {
+          width: v.videoWidth,
+          height: v.videoHeight,
+          duration: isFinite(v.duration) ? v.duration : 0,
+        });
+      } else {
+        finish(false, undefined, new Error("Timed out reading video metadata"));
+      }
+    }, 15000);
+    v.onloadedmetadata = tryResolve;
+    v.onloadeddata = tryResolve;
+    v.oncanplay = tryResolve;
+    v.onerror = () =>
+      finish(false, undefined, new Error("Could not read video metadata"));
   });
 }
 

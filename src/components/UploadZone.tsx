@@ -6,8 +6,9 @@ import { useAppStore } from "@/store/app-store";
 const MAX_SIZE = 500 * 1024 * 1024; // 500MB — "Long Video Support"
 const MAX_DURATION = 600; // 10 min
 const MAX_BATCH = 100;
-// Only formats reliably probeable by HTMLVideoElement in all browsers.
-const ALLOWED = /\.(mp4|mov|m4v|webm)$/i;
+// Accept anything that looks like a video — we'll let the engine deal with
+// it. Filtering too aggressively here was silently dropping valid uploads.
+const ALLOWED = /\.(mp4|mov|m4v|webm|mkv|avi|m2ts|ts|flv|wmv|3gp)$/i;
 
 export function UploadZone({ compact = false }: { compact?: boolean }) {
   const [hover, setHover] = useState(false);
@@ -27,7 +28,9 @@ export function UploadZone({ compact = false }: { compact?: boolean }) {
           return;
         }
         for (const file of arr) {
-          if (!ALLOWED.test(file.name)) {
+          const looksVideo =
+            ALLOWED.test(file.name) || file.type.startsWith("video/");
+          if (!looksVideo) {
             setErr(`Unsupported format: ${file.name}`);
             continue;
           }
@@ -35,33 +38,35 @@ export function UploadZone({ compact = false }: { compact?: boolean }) {
             setErr(`${file.name} exceeds 500MB`);
             continue;
           }
-          try {
-            const meta = await probeVideo(file);
-            if (meta.duration > MAX_DURATION + 0.5) {
-              setErr(`${file.name} exceeds 10 minutes`);
-              continue;
-            }
-            const thumbnail = await extractThumbnail(file).catch(
-              () => undefined,
-            );
-            // <input webkitdirectory> + folder drag-and-drop expose a
-            // relative path; preserve it so batch ZIPs keep folders.
-            const rel = (file as File & { webkitRelativePath?: string })
-              .webkitRelativePath;
-            addVideo(
-              {
-                id: crypto.randomUUID(),
-                name: file.name,
-                size: file.size,
-                meta,
-                thumbnail,
-                relativePath: rel && rel !== file.name ? rel : undefined,
-              },
-              file,
-            );
-          } catch {
-            setErr(`Could not read ${file.name}`);
+          // Best-effort probe. If metadata reading fails (some codecs/wrappers
+          // aren't supported by HTMLVideoElement even though FFmpeg handles
+          // them fine) we still add the file with a placeholder so the user
+          // sees it in the list and can mark/process it.
+          const meta = await probeVideo(file).catch(() => ({
+            width: 1280,
+            height: 720,
+            duration: 0,
+          }));
+          if (meta.duration && meta.duration > MAX_DURATION + 0.5) {
+            setErr(`${file.name} exceeds 10 minutes`);
+            continue;
           }
+          const thumbnail = await extractThumbnail(file).catch(
+            () => undefined,
+          );
+          const rel = (file as File & { webkitRelativePath?: string })
+            .webkitRelativePath;
+          addVideo(
+            {
+              id: crypto.randomUUID(),
+              name: file.name,
+              size: file.size,
+              meta,
+              thumbnail,
+              relativePath: rel && rel !== file.name ? rel : undefined,
+            },
+            file,
+          );
         }
       } finally {
         setBusy(false);
