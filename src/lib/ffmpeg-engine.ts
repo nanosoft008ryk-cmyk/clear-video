@@ -375,6 +375,6 @@ export async function removeWatermark(file: File, opts: ProcessOptions): Promise
 }
 
 function shellQuote(s: string): string {
-  if (/^[A-Za-z0-9_./:=+@\-\[\]]+$/.test(s)) return s;
+  if (/^[A-Za-z0-9_./:=+@[\]-]+$/.test(s)) return s;
   return `'${s.replace(/'/g, "'\\''")}'`;
 }
