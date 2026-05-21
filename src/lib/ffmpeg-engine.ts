@@ -169,11 +169,12 @@ function buildFilter(
   //   2. Scale each to the expanded patch size and average them with
   //      `blend=all_mode=average` so no single side dominates — the
   //      background colour and texture come from all available sides.
-  //   3. Soft-blur and apply a feathered alpha so the patch edges
-  //      dissolve into the surrounding video with no visible border.
+  //   3. Apply only a narrow feathered alpha at the patch edge. The patch
+  //      itself is not blurred, so the reconstructed background keeps the
+  //      original video texture instead of turning the marked box soft.
   // This works with the stock ffmpeg.wasm filter set (no delogo needed).
   const M = Math.max(6, Math.round(Math.min(w, h) * 0.08));
-  const F = M;
+  const F = Math.max(3, Math.min(10, Math.round(Math.min(w, h) * 0.035)));
 
   // Target patch placement (expanded by M on every side, clamped to frame).
   let px = Math.floor(x) - M;
@@ -239,7 +240,9 @@ function buildFilter(
     c.sh = Math.max(2, Math.min(H - c.sy, Math.floor(c.sh)));
   }
 
-  // Feathered alpha: 0 at the patch border, opaque after F pixels.
+  // Feathered alpha: 0 at the expanded patch border, fully opaque after a
+  // small edge-only transition. This hides seams without blurring the mask
+  // area or washing out the replacement background.
   const alphaExpr = `255*clip(min(min(X,W-X),min(Y,H-Y))/${F},0,1)`;
 
   const n = sides.length;
@@ -267,7 +270,7 @@ function buildFilter(
   }
 
   graph +=
-    `[avg]gblur=sigma=1.4,format=yuva420p,` +
+    `[avg]format=yuva420p,` +
     `geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='${alphaExpr}'[patch];` +
     `[base][patch]overlay=${px}:${py}:format=auto,` +
     `pad=ceil(iw/2)*2:ceil(ih/2)*2[outv]`;
