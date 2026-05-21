@@ -163,49 +163,15 @@ function buildFilter(
   const { x, y, width: w, height: h, fillMode } = region;
   const { width: W, height: H } = meta;
 
-  // Primary strategy: ffmpeg's `delogo` filter. It rebuilds the masked
-  // rectangle by interpolating from the pixels immediately around it,
-  // so the surrounding background is preserved exactly and the seam
-  // dissolves into the source instead of showing a hard border.
-  //
-  // delogo requires the region to be strictly inside the frame (it reads
-  // from a 1px border around the box). We also need the rectangle to be
-  // at least a few pixels in each dimension. The `band` parameter widens
-  // the fuzzy blend ring so the join into the surrounding video is soft.
-  let dx = Math.max(1, Math.floor(x));
-  let dy = Math.max(1, Math.floor(y));
-  let dw = Math.floor(w);
-  let dh = Math.floor(h);
-  if (dx + dw >= W) dw = W - dx - 1;
-  if (dy + dh >= H) dh = H - dy - 1;
-  dw = Math.max(4, dw);
-  dh = Math.max(4, dh);
-  // Wider band = softer, more omnidirectional blend (samples a thicker ring
-  // of surrounding pixels instead of just a thin edge). This keeps the
-  // surrounding background visually identical and removes any "copied from
-  // one side" look.
-  const band = Math.max(4, Math.min(20, Math.round(Math.min(dw, dh) * 0.12)));
-
-  // Always use delogo for the actual fill — it interpolates equally from
-  // all four sides so the background pattern is preserved without showing
-  // a directional patch. The neighbour-patch overlay only kicks in if the
-  // region is so large that delogo can't physically interpolate it (more
-  // than ~25% of the frame area or a side longer than half the frame).
-  const areaRatio = (dw * dh) / (W * H);
-  const useDelogo =
-    areaRatio <= 0.25 && dw < W * 0.5 && dh < H * 0.5;
-
-  if (useDelogo) {
-    return (
-      `[0:v]delogo=x=${dx}:y=${dy}:w=${dw}:h=${dh}:band=${band}:show=0,` +
-      `pad=ceil(iw/2)*2:ceil(ih/2)*2[outv]`
-    );
-  }
-
-  // Fallback path: feathered neighbour-patch overlay.
-  // Margin (M) expands the patch beyond the marked region so its edges sit
-  // over real video pixels we can feather into. Feather (F) is the width of
-  // the soft alpha gradient that hides the seam.
+  // Multi-directional patch reconstruction:
+  //   1. Sample up to 4 neighbouring strips (left / right / top / bottom)
+  //      from the area immediately around the marked region.
+  //   2. Scale each to the expanded patch size and average them with
+  //      `blend=all_mode=average` so no single side dominates — the
+  //      background colour and texture come from all available sides.
+  //   3. Soft-blur and apply a feathered alpha so the patch edges
+  //      dissolve into the surrounding video with no visible border.
+  // This works with the stock ffmpeg.wasm filter set (no delogo needed).
   const M = Math.max(6, Math.round(Math.min(w, h) * 0.08));
   const F = M;
 
@@ -221,115 +187,92 @@ function buildFilter(
   pw = Math.max(4, pw - (pw % 2));
   ph = Math.max(4, ph - (ph % 2));
 
-  // Compute source crop region based on fill direction (sized to expanded patch)
-  let sx = 0;
-  let sy = 0;
-  let sw = pw;
-  let sh = ph;
+  const leftRoom = Math.max(0, Math.floor(x));
+  const rightRoom = Math.max(0, Math.floor(W - (x + w)));
+  const topRoom = Math.max(0, Math.floor(y));
+  const bottomRoom = Math.max(0, Math.floor(H - (y + h)));
 
-  const leftRoom = x;
-  const rightRoom = W - (x + w);
-  const topRoom = y;
-  const bottomRoom = H - (y + h);
+  type Crop = { sx: number; sy: number; sw: number; sh: number };
+  const sides: Crop[] = [];
 
-  const mode: FillMode =
-    fillMode === "auto"
-      ? Math.max(leftRoom, rightRoom) >= Math.max(topRoom, bottomRoom)
-        ? "horizontal"
-        : "vertical"
-      : fillMode;
+  // Decide which sides we have room to sample from. We require at least
+  // 4px of clean pixels on a side to consider it. fillMode lets the user
+  // restrict sampling direction; "auto" / "clone" / "edge" use every
+  // available side.
+  const wantH = fillMode === "horizontal" || fillMode === "auto" ||
+    fillMode === "clone" || fillMode === "edge";
+  const wantV = fillMode === "vertical" || fillMode === "auto" ||
+    fillMode === "clone" || fillMode === "edge";
 
-  switch (mode) {
-    case "horizontal": {
-      if (leftRoom >= rightRoom && leftRoom > 4) {
-        sw = Math.max(4, Math.min(pw, leftRoom));
-        sx = x - sw;
-        sy = py;
-        sh = ph;
-      } else {
-        sw = Math.max(4, Math.min(pw, rightRoom));
-        sx = x + w;
-        sy = py;
-        sh = ph;
-      }
-      break;
-    }
-    case "vertical": {
-      if (topRoom >= bottomRoom && topRoom > 4) {
-        sh = Math.max(4, Math.min(ph, topRoom));
-        sy = y - sh;
-        sx = px;
-        sw = pw;
-      } else {
-        sh = Math.max(4, Math.min(ph, bottomRoom));
-        sy = y + h;
-        sx = px;
-        sw = pw;
-      }
-      break;
-    }
-    case "edge": {
-      // Thin edge strip from nearest border, stretched across the patch
-      if (leftRoom >= rightRoom && leftRoom > 2) {
-        sw = 4;
-        sx = Math.max(0, x - 4);
-        sy = py;
-        sh = ph;
-      } else {
-        sw = 4;
-        sx = Math.min(W - 4, x + w);
-        sy = py;
-        sh = ph;
-      }
-      break;
-    }
-    case "clone": {
-      // Mirror an adjacent block of equal size
-      if (rightRoom >= leftRoom && rightRoom >= pw) {
-        sx = x + w;
-        sy = py;
-        sw = pw;
-        sh = ph;
-      } else if (leftRoom >= pw) {
-        sx = Math.max(0, x - pw);
-        sy = py;
-        sw = pw;
-        sh = ph;
-      } else {
-        sw = Math.max(4, Math.min(pw, Math.max(leftRoom, rightRoom)));
-        sx = leftRoom >= rightRoom ? Math.max(0, x - sw) : x + w;
-        sy = py;
-        sh = ph;
-      }
-      break;
-    }
+  if (wantH && leftRoom >= 4) {
+    const sw = Math.min(pw, leftRoom);
+    sides.push({ sx: Math.max(0, Math.floor(x) - sw), sy: py, sw, sh: ph });
+  }
+  if (wantH && rightRoom >= 4) {
+    const sw = Math.min(pw, rightRoom);
+    sides.push({ sx: Math.floor(x + w), sy: py, sw, sh: ph });
+  }
+  if (wantV && topRoom >= 4) {
+    const sh = Math.min(ph, topRoom);
+    sides.push({ sx: px, sy: Math.max(0, Math.floor(y) - sh), sw: pw, sh });
+  }
+  if (wantV && bottomRoom >= 4) {
+    const sh = Math.min(ph, bottomRoom);
+    sides.push({ sx: px, sy: Math.floor(y + h), sw: pw, sh });
   }
 
-  // Clamp to frame
-  sx = Math.max(0, Math.min(W - 2, Math.floor(sx)));
-  sy = Math.max(0, Math.min(H - 2, Math.floor(sy)));
-  sw = Math.max(2, Math.min(W - sx, Math.floor(sw)));
-  sh = Math.max(2, Math.min(H - sy, Math.floor(sh)));
+  // Worst case: the box touches the frame on every restricted side. Fall
+  // back to whatever single neighbour exists.
+  if (sides.length === 0) {
+    if (leftRoom >= 4) sides.push({ sx: Math.max(0, Math.floor(x) - Math.min(pw, leftRoom)), sy: py, sw: Math.min(pw, leftRoom), sh: ph });
+    else if (rightRoom >= 4) sides.push({ sx: Math.floor(x + w), sy: py, sw: Math.min(pw, rightRoom), sh: ph });
+    else if (topRoom >= 4) sides.push({ sx: px, sy: Math.max(0, Math.floor(y) - Math.min(ph, topRoom)), sw: pw, sh: Math.min(ph, topRoom) });
+    else if (bottomRoom >= 4) sides.push({ sx: px, sy: Math.floor(y + h), sw: pw, sh: Math.min(ph, bottomRoom) });
+    else sides.push({ sx: 0, sy: 0, sw: pw, sh: ph }); // degenerate
+  }
 
-  // Build a feathered alpha so the patch fades into the surrounding video.
-  // The alpha is 0 at the patch border and ramps to opaque over F pixels,
-  // making the rectangular seam invisible. A light gblur on the patch
-  // hides micro detail mismatch (grain/compression) between source crop
-  // and surrounding pixels.
-  //
-  // Use geq with X,Y in the patch's coordinate space (W=pw, H=ph for luma;
-  // half that for chroma — min(...) still ramps correctly so we apply the
-  // same expression to all planes).
+  // Clamp every crop to the frame and to even pixel offsets.
+  for (const c of sides) {
+    c.sx = Math.max(0, Math.min(W - 2, Math.floor(c.sx)));
+    c.sy = Math.max(0, Math.min(H - 2, Math.floor(c.sy)));
+    c.sw = Math.max(2, Math.min(W - c.sx, Math.floor(c.sw)));
+    c.sh = Math.max(2, Math.min(H - c.sy, Math.floor(c.sh)));
+  }
+
+  // Feathered alpha: 0 at the patch border, opaque after F pixels.
   const alphaExpr = `255*clip(min(min(X,W-X),min(Y,H-Y))/${F},0,1)`;
 
-  return (
-    `[0:v]split=2[base][src];` +
-    `[src]crop=${sw}:${sh}:${sx}:${sy},scale=${pw}:${ph}:flags=lanczos,` +
-    `gblur=sigma=1.2,format=yuva420p,` +
+  const n = sides.length;
+  // [0:v] is split into (n + 1) streams: 1 base + n side samples.
+  const splitLabels = ["base", ...sides.map((_, i) => `s${i}`)];
+  let graph = `[0:v]split=${n + 1}[${splitLabels.join("][")}];`;
+
+  // Crop + scale each sampled side into a same-size patch candidate.
+  for (let i = 0; i < n; i++) {
+    const c = sides[i];
+    graph += `[s${i}]crop=${c.sw}:${c.sh}:${c.sx}:${c.sy},scale=${pw}:${ph}:flags=lanczos[p${i}];`;
+  }
+
+  // Average the candidates pairwise so the final patch carries the colour
+  // and texture of all available sides equally — no directional copy.
+  let last = `p0`;
+  for (let i = 1; i < n; i++) {
+    const out = i === n - 1 ? "avg" : `b${i}`;
+    graph += `[${last}][p${i}]blend=all_mode=average[${out}];`;
+    last = out;
+  }
+  if (n === 1) {
+    // Only one source — alias it as "avg" so downstream chain is the same.
+    graph += `[p0]copy[avg];`;
+  }
+
+  graph +=
+    `[avg]gblur=sigma=1.4,format=yuva420p,` +
     `geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='${alphaExpr}'[patch];` +
     `[base][patch]overlay=${px}:${py}:format=auto,` +
-    `pad=ceil(iw/2)*2:ceil(ih/2)*2[outv]`
-  );
+    `pad=ceil(iw/2)*2:ceil(ih/2)*2[outv]`;
+
+  return graph;
 }
 
 export interface ProcessOptions {
