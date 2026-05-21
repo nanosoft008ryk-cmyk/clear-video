@@ -26,6 +26,7 @@ import {
   Copy,
   Save,
   Bookmark,
+  Trash2,
 } from "lucide-react";
 import JSZip from "jszip";
 import { useAppStore, type Template } from "@/store/app-store";
