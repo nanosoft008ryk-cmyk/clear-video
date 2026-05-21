@@ -53,12 +53,7 @@ function withEngineLock<T>(fn: () => Promise<T>): Promise<T> {
   return next;
 }
 
-export type FillMode =
-  | "horizontal"
-  | "vertical"
-  | "auto"
-  | "edge"
-  | "clone";
+export type FillMode = "horizontal" | "vertical" | "auto" | "edge" | "clone";
 
 export interface WatermarkRegion {
   x: number;
@@ -112,8 +107,7 @@ export async function probeVideo(file: File): Promise<VideoMeta> {
     v.onloadedmetadata = tryResolve;
     v.onloadeddata = tryResolve;
     v.oncanplay = tryResolve;
-    v.onerror = () =>
-      finish(false, undefined, new Error("Could not read video metadata"));
+    v.onerror = () => finish(false, undefined, new Error("Could not read video metadata"));
   });
 }
 
@@ -156,10 +150,7 @@ export async function extractThumbnail(file: File): Promise<string> {
  * scales it to the watermark region, and overlays it.
  * No blur — pure pixel reconstruction via stretch-fill.
  */
-function buildFilter(
-  region: WatermarkRegion,
-  meta: VideoMeta,
-): string {
+function buildFilter(region: WatermarkRegion, meta: VideoMeta): string {
   const { x, y, width: w, height: h, fillMode } = region;
   const { width: W, height: H } = meta;
 
@@ -169,19 +160,26 @@ function buildFilter(
   //   2. Scale each to the expanded patch size and average them with
   //      `blend=all_mode=average` so no single side dominates — the
   //      background colour and texture come from all available sides.
-  //   3. Soft-blur and apply a feathered alpha so the patch edges
-  //      dissolve into the surrounding video with no visible border.
+  //   3. Apply only a narrow feathered alpha at the patch edge. The patch
+  //      itself is not blurred, so the reconstructed background keeps the
+  //      original video texture instead of turning the marked box soft.
   // This works with the stock ffmpeg.wasm filter set (no delogo needed).
   const M = Math.max(6, Math.round(Math.min(w, h) * 0.08));
-  const F = M;
+  const F = Math.max(3, Math.min(10, Math.round(Math.min(w, h) * 0.035)));
 
   // Target patch placement (expanded by M on every side, clamped to frame).
   let px = Math.floor(x) - M;
   let py = Math.floor(y) - M;
   let pw = Math.floor(w) + 2 * M;
   let ph = Math.floor(h) + 2 * M;
-  if (px < 0) { pw += px; px = 0; }
-  if (py < 0) { ph += py; py = 0; }
+  if (px < 0) {
+    pw += px;
+    px = 0;
+  }
+  if (py < 0) {
+    ph += py;
+    py = 0;
+  }
   if (px + pw > W) pw = W - px;
   if (py + ph > H) ph = H - py;
   pw = Math.max(4, pw - (pw % 2));
@@ -199,10 +197,10 @@ function buildFilter(
   // 4px of clean pixels on a side to consider it. fillMode lets the user
   // restrict sampling direction; "auto" / "clone" / "edge" use every
   // available side.
-  const wantH = fillMode === "horizontal" || fillMode === "auto" ||
-    fillMode === "clone" || fillMode === "edge";
-  const wantV = fillMode === "vertical" || fillMode === "auto" ||
-    fillMode === "clone" || fillMode === "edge";
+  const wantH =
+    fillMode === "horizontal" || fillMode === "auto" || fillMode === "clone" || fillMode === "edge";
+  const wantV =
+    fillMode === "vertical" || fillMode === "auto" || fillMode === "clone" || fillMode === "edge";
 
   if (wantH && leftRoom >= 4) {
     const sw = Math.min(pw, leftRoom);
@@ -224,10 +222,24 @@ function buildFilter(
   // Worst case: the box touches the frame on every restricted side. Fall
   // back to whatever single neighbour exists.
   if (sides.length === 0) {
-    if (leftRoom >= 4) sides.push({ sx: Math.max(0, Math.floor(x) - Math.min(pw, leftRoom)), sy: py, sw: Math.min(pw, leftRoom), sh: ph });
-    else if (rightRoom >= 4) sides.push({ sx: Math.floor(x + w), sy: py, sw: Math.min(pw, rightRoom), sh: ph });
-    else if (topRoom >= 4) sides.push({ sx: px, sy: Math.max(0, Math.floor(y) - Math.min(ph, topRoom)), sw: pw, sh: Math.min(ph, topRoom) });
-    else if (bottomRoom >= 4) sides.push({ sx: px, sy: Math.floor(y + h), sw: pw, sh: Math.min(ph, bottomRoom) });
+    if (leftRoom >= 4)
+      sides.push({
+        sx: Math.max(0, Math.floor(x) - Math.min(pw, leftRoom)),
+        sy: py,
+        sw: Math.min(pw, leftRoom),
+        sh: ph,
+      });
+    else if (rightRoom >= 4)
+      sides.push({ sx: Math.floor(x + w), sy: py, sw: Math.min(pw, rightRoom), sh: ph });
+    else if (topRoom >= 4)
+      sides.push({
+        sx: px,
+        sy: Math.max(0, Math.floor(y) - Math.min(ph, topRoom)),
+        sw: pw,
+        sh: Math.min(ph, topRoom),
+      });
+    else if (bottomRoom >= 4)
+      sides.push({ sx: px, sy: Math.floor(y + h), sw: pw, sh: Math.min(ph, bottomRoom) });
     else sides.push({ sx: 0, sy: 0, sw: pw, sh: ph }); // degenerate
   }
 
@@ -239,7 +251,9 @@ function buildFilter(
     c.sh = Math.max(2, Math.min(H - c.sy, Math.floor(c.sh)));
   }
 
-  // Feathered alpha: 0 at the patch border, opaque after F pixels.
+  // Feathered alpha: 0 at the expanded patch border, fully opaque after a
+  // small edge-only transition. This hides seams without blurring the mask
+  // area or washing out the replacement background.
   const alphaExpr = `255*clip(min(min(X,W-X),min(Y,H-Y))/${F},0,1)`;
 
   const n = sides.length;
@@ -267,7 +281,7 @@ function buildFilter(
   }
 
   graph +=
-    `[avg]gblur=sigma=1.4,format=yuva420p,` +
+    `[avg]format=yuva420p,` +
     `geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='${alphaExpr}'[patch];` +
     `[base][patch]overlay=${px}:${py}:format=auto,` +
     `pad=ceil(iw/2)*2:ceil(ih/2)*2[outv]`;
@@ -287,10 +301,7 @@ export interface ProcessOptions {
   onCommand?: (cmd: string) => void;
 }
 
-export async function removeWatermark(
-  file: File,
-  opts: ProcessOptions,
-): Promise<Blob> {
+export async function removeWatermark(file: File, opts: ProcessOptions): Promise<Blob> {
   return withEngineLock(async () => {
     const ff = await getFFmpeg();
     const stamp = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -299,8 +310,7 @@ export async function removeWatermark(
     const outputName = `out_${stamp}.mp4`;
 
     const progressHandler = ({ progress }: { progress: number }) => {
-      if (opts.onProgress)
-        opts.onProgress(Math.min(1, Math.max(0, progress)));
+      if (opts.onProgress) opts.onProgress(Math.min(1, Math.max(0, progress)));
     };
     ff.on("progress", progressHandler);
     if (opts.onLog) _logListeners.add(opts.onLog);
@@ -320,18 +330,29 @@ export async function removeWatermark(
             ? ["-map", "0:a?", "-c:a", "copy"]
             : ["-map", "0:a?", "-c:a", "aac", "-b:a", "128k"];
       const args = [
-        "-threads", "0",
-        "-i", inputName,
-        "-filter_complex", filter,
-        "-map", "[outv]",
+        "-threads",
+        "0",
+        "-i",
+        inputName,
+        "-filter_complex",
+        filter,
+        "-map",
+        "[outv]",
         ...audioArgs,
-        "-c:v", "libx264",
-        "-preset", opts.preset ?? "veryfast",
-        "-crf", String(opts.crf ?? 20),
-        "-tune", "fastdecode",
-        "-pix_fmt", "yuv420p",
-        "-movflags", "+faststart",
-        "-avoid_negative_ts", "make_zero",
+        "-c:v",
+        "libx264",
+        "-preset",
+        opts.preset ?? "veryfast",
+        "-crf",
+        String(opts.crf ?? 20),
+        "-tune",
+        "fastdecode",
+        "-pix_fmt",
+        "yuv420p",
+        "-movflags",
+        "+faststart",
+        "-avoid_negative_ts",
+        "make_zero",
         "-y",
         outputName,
       ];
@@ -354,6 +375,6 @@ export async function removeWatermark(
 }
 
 function shellQuote(s: string): string {
-  if (/^[A-Za-z0-9_./:=+@\-\[\]]+$/.test(s)) return s;
+  if (/^[A-Za-z0-9_./:=+@[\]-]+$/.test(s)) return s;
   return `'${s.replace(/'/g, "'\\''")}'`;
 }
