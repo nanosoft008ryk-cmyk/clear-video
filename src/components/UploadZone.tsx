@@ -170,7 +170,7 @@ export function UploadZone({ compact = false }: { compact?: boolean }) {
           <input
             type="file"
             multiple
-            accept=".mp4,.mov,.m4v,.webm,video/mp4,video/quicktime,video/webm"
+            accept=".mp4,.mov,.m4v,.webm,.mkv,.avi,.m2ts,.ts,.flv,.wmv,.3gp,video/*"
             className="hidden"
             onChange={(e) => {
               if (e.target.files) handle(e.target.files);
