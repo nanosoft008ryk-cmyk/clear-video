@@ -124,6 +124,7 @@ interface Store {
   pushJobStderr: (jobId: string, msg: string) => void;
   setCoreCache: (s: CacheState) => void;
   rehydrateFromIDB: () => Promise<void>;
+  updateVideo: (id: string, patch: Partial<VideoItem>) => void;
 }
 
 export const useAppStore = create<Store>()(
@@ -159,6 +160,24 @@ export const useAppStore = create<Store>()(
           relativePath: v.relativePath,
           file,
         }).catch(() => undefined);
+      },
+      updateVideo: (id, patch) => {
+        set((s) => ({
+          videos: s.videos.map((v) => (v.id === id ? { ...v, ...patch } : v)),
+        }));
+        const video = get().videos.find((v) => v.id === id);
+        const file = get().videoFiles.get(id);
+        if (video && file) {
+          void idbPutVideo({
+            id: video.id,
+            name: video.name,
+            size: video.size,
+            meta: video.meta,
+            thumbnail: video.thumbnail,
+            relativePath: video.relativePath,
+            file,
+          }).catch(() => undefined);
+        }
       },
       removeVideo: (id) => {
         get().videoFiles.delete(id);
