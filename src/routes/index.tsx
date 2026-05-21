@@ -100,6 +100,8 @@ function HomePage() {
   const enqueue = useAppStore((s) => s.enqueue);
   const retryJob = useAppStore((s) => s.retryJob);
   const cancelJob = useAppStore((s) => s.cancelJob);
+  const removeJob = useAppStore((s) => s.removeJob);
+  const removeExport = useAppStore((s) => s.removeExport);
 
   const [activeId, setActiveId] = useState<string | null>(null);
   const [box, setBox] = useState({ x: 40, y: 40, width: 200, height: 80 });
@@ -702,7 +704,11 @@ function HomePage() {
                     <div className="flex gap-1">
                       {j.status === "done" && blob && ex && (
                         <button
-                          onClick={() => downloadBlob(blob, ex.name)}
+                          onClick={() => {
+                            downloadBlob(blob, ex.name);
+                            removeExport(ex.id);
+                            removeJob(j.id);
+                          }}
                           className="inline-flex items-center gap-1 rounded-lg bg-[image:var(--gradient-primary)] px-3 py-1.5 text-xs font-semibold text-primary-foreground"
                         >
                           <Download className="h-3.5 w-3.5" /> Download

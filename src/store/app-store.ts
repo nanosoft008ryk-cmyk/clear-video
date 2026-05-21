@@ -113,6 +113,7 @@ interface Store {
   cancelJob: (id: string) => void;
   retryJob: (id: string) => void;
   clearJobs: () => void;
+  removeJob: (id: string) => void;
 
   addExport: (e: ExportItem, blob: Blob) => void;
   removeExport: (id: string) => void;
@@ -250,6 +251,10 @@ export const useAppStore = create<Store>()(
           jobs: s.jobs.filter(
             (j) => j.status === "queued" || j.status === "processing",
           ),
+        })),
+      removeJob: (id) =>
+        set((s) => ({
+          jobs: s.jobs.filter((j) => j.id !== id),
         })),
 
       addExport: (e, blob) => {
