@@ -113,6 +113,7 @@ interface Store {
   cancelJob: (id: string) => void;
   retryJob: (id: string) => void;
   clearJobs: () => void;
+  removeJob: (id: string) => void;
 
   addExport: (e: ExportItem, blob: Blob) => void;
   removeExport: (id: string) => void;
