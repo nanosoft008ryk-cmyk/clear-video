@@ -704,7 +704,11 @@ function HomePage() {
                     <div className="flex gap-1">
                       {j.status === "done" && blob && ex && (
                         <button
-                          onClick={() => downloadBlob(blob, ex.name)}
+                          onClick={() => {
+                            downloadBlob(blob, ex.name);
+                            removeExport(ex.id);
+                            removeJob(j.id);
+                          }}
                           className="inline-flex items-center gap-1 rounded-lg bg-[image:var(--gradient-primary)] px-3 py-1.5 text-xs font-semibold text-primary-foreground"
                         >
                           <Download className="h-3.5 w-3.5" /> Download
