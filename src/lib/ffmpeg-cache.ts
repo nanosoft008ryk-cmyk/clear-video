@@ -70,25 +70,44 @@ async function fetchWithProgress(
   mime: string,
   onChunk: (delta: number, totalHint: number) => void,
 ): Promise<Blob> {
-  const r = await fetch(url, { cache: "no-store" });
-  if (!r.ok) throw new Error(`HTTP ${r.status} ${url}`);
-  const totalHint = Number(r.headers.get("content-length") || 0);
-  if (!r.body) {
-    const blob = await r.blob();
-    onChunk(blob.size, totalHint || blob.size);
-    return new Blob([blob], { type: mime });
+  const MAX_ATTEMPTS = 4;
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    let received = 0;
+    try {
+      const r = await fetch(url, { cache: "reload", credentials: "same-origin" });
+      if (!r.ok) throw new Error(`HTTP ${r.status} ${url}`);
+      const totalHint = Number(r.headers.get("content-length") || 0);
+      if (!r.body) {
+        const blob = await r.blob();
+        onChunk(blob.size, totalHint || blob.size);
+        return new Blob([blob], { type: mime });
+      }
+      const reader = r.body.getReader();
+      const chunks: BlobPart[] = [];
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const copy = new Uint8Array(value.byteLength);
+        copy.set(value);
+        chunks.push(copy.buffer);
+        received += value.byteLength;
+        onChunk(value.byteLength, totalHint);
+      }
+      return new Blob(chunks, { type: mime });
+    } catch (e) {
+      lastErr = e;
+      // Roll back the progress bar so the retry reports accurate totals.
+      if (received > 0) onChunk(-received, 0);
+      if (attempt < MAX_ATTEMPTS) {
+        await new Promise((res) => setTimeout(res, 400 * attempt));
+        continue;
+      }
+    }
   }
-  const reader = r.body.getReader();
-  const chunks: BlobPart[] = [];
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    const copy = new Uint8Array(value.byteLength);
-    copy.set(value);
-    chunks.push(copy.buffer);
-    onChunk(value.byteLength, totalHint);
-  }
-  return new Blob(chunks, { type: mime });
+  throw lastErr instanceof Error
+    ? lastErr
+    : new Error(`Failed to fetch ${url}`);
 }
 
 async function deleteLegacyIDB() {
