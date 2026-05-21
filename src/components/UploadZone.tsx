@@ -168,7 +168,10 @@ export function UploadZone({ compact = false }: { compact?: boolean }) {
             multiple
             accept=".mp4,.mov,.m4v,.webm,video/mp4,video/quicktime,video/webm"
             className="hidden"
-            onChange={(e) => e.target.files && handle(e.target.files)}
+            onChange={(e) => {
+              if (e.target.files) handle(e.target.files);
+              e.target.value = "";
+            }}
           />
         </label>
         <label className="mt-2 inline-flex cursor-pointer items-center text-[11px] text-muted-foreground hover:text-foreground">
@@ -180,7 +183,10 @@ export function UploadZone({ compact = false }: { compact?: boolean }) {
             webkitdirectory=""
             directory=""
             className="hidden"
-            onChange={(e) => e.target.files && handle(e.target.files)}
+            onChange={(e) => {
+              if (e.target.files) handle(e.target.files);
+              e.target.value = "";
+            }}
           />
         </label>
         {err && (
