@@ -180,13 +180,20 @@ function buildFilter(
   if (dy + dh >= H) dh = H - dy - 1;
   dw = Math.max(4, dw);
   dh = Math.max(4, dh);
-  const band = Math.max(2, Math.min(8, Math.round(Math.min(dw, dh) * 0.04)));
+  // Wider band = softer, more omnidirectional blend (samples a thicker ring
+  // of surrounding pixels instead of just a thin edge). This keeps the
+  // surrounding background visually identical and removes any "copied from
+  // one side" look.
+  const band = Math.max(4, Math.min(20, Math.round(Math.min(dw, dh) * 0.12)));
 
-  // For very large regions delogo's interpolation gets blurry in the centre.
-  // In that case we fall back to the neighbour-patch overlay (with feathered
-  // alpha) which at least carries real texture into the middle.
+  // Always use delogo for the actual fill — it interpolates equally from
+  // all four sides so the background pattern is preserved without showing
+  // a directional patch. The neighbour-patch overlay only kicks in if the
+  // region is so large that delogo can't physically interpolate it (more
+  // than ~25% of the frame area or a side longer than half the frame).
   const areaRatio = (dw * dh) / (W * H);
-  const useDelogo = areaRatio <= 0.06; // ~6% of frame; tweakable
+  const useDelogo =
+    areaRatio <= 0.25 && dw < W * 0.5 && dh < H * 0.5;
 
   if (useDelogo) {
     return (
