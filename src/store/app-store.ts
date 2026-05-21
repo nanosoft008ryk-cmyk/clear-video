@@ -252,6 +252,10 @@ export const useAppStore = create<Store>()(
             (j) => j.status === "queued" || j.status === "processing",
           ),
         })),
+      removeJob: (id) =>
+        set((s) => ({
+          jobs: s.jobs.filter((j) => j.id !== id),
+        })),
 
       addExport: (e, blob) => {
         get().exportBlobs.set(e.id, blob);
