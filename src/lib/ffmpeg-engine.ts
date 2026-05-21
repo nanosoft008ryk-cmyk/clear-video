@@ -278,8 +278,11 @@ function buildFilter(region: WatermarkRegion, meta: VideoMeta): string {
   }
 
   graph +=
-    `[avg]format=yuva420p,` +
-    `geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='${alphaExpr}'[patch];` +
+    `[avg]split=2[clean][patchrgb];` +
+    `[orig][clean]blend=all_mode=difference,format=gray,` +
+    `geq=lum='255*clip((lum(X,Y)-14)/64,0,1)*${edgeExpr}'[mask];` +
+    `[patchrgb]format=rgb24[patchcolor];` +
+    `[patchcolor][mask]alphamerge,format=yuva420p[patch];` +
     `[base][patch]overlay=${px}:${py}:format=auto,` +
     `pad=ceil(iw/2)*2:ceil(ih/2)*2[outv]`;
 
