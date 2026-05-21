@@ -316,6 +316,12 @@ function HomePage() {
       );
       downloadBlob(out, `cleaned_videos_${Date.now()}.zip`);
       setZipState({ busy: false, percent: 100, file: "" });
+      // Remove successfully processed videos from the page after batch download.
+      for (const e of finishedExports) {
+        removeExport(e.id);
+        const job = jobs.find((j) => j.id === e.jobId);
+        if (job) removeJob(job.id);
+      }
     } catch (err) {
       console.error(err);
       setZipState({ busy: false, percent: 0, file: "" });
