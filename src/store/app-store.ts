@@ -267,9 +267,7 @@ export const useAppStore = create<Store>()(
         })),
       clearJobs: () =>
         set((s) => ({
-          jobs: s.jobs.filter(
-            (j) => j.status === "queued" || j.status === "processing",
-          ),
+          jobs: s.jobs.filter((j) => j.status === "done"),
         })),
       removeJob: (id) =>
         set((s) => ({
