@@ -154,15 +154,12 @@ function buildFilter(region: WatermarkRegion, meta: VideoMeta): string {
   const { x, y, width: w, height: h, fillMode } = region;
   const { width: W, height: H } = meta;
 
-  // Multi-directional patch reconstruction:
-  //   1. Sample up to 4 neighbouring strips (left / right / top / bottom)
-  //      from the area immediately around the marked region.
-  //   2. Scale each to the expanded patch size and average them with
-  //      `blend=all_mode=average` so no single side dominates — the
-  //      background colour and texture come from all available sides.
-  //   3. Apply only a narrow feathered alpha at the patch edge. The patch
-  //      itself is not blurred, so the reconstructed background keeps the
-  //      original video texture instead of turning the marked box soft.
+  // Selective watermark reconstruction:
+  //   1. Keep the original pixels from the selected mask area as the base.
+  //   2. Build a clean background candidate from surrounding pixels.
+  //   3. Compare the original mask area with the clean candidate and only
+  //      overlay pixels that differ enough to look like watermark/text.
+  // This avoids replacing the whole rectangle with copied right-side content.
   // This works with the stock ffmpeg.wasm filter set (no delogo needed).
   const M = Math.max(6, Math.round(Math.min(w, h) * 0.08));
   const F = Math.max(3, Math.min(10, Math.round(Math.min(w, h) * 0.035)));
@@ -251,15 +248,15 @@ function buildFilter(region: WatermarkRegion, meta: VideoMeta): string {
     c.sh = Math.max(2, Math.min(H - c.sy, Math.floor(c.sh)));
   }
 
-  // Feathered alpha: 0 at the expanded patch border, fully opaque after a
-  // small edge-only transition. This hides seams without blurring the mask
-  // area or washing out the replacement background.
-  const alphaExpr = `255*clip(min(min(X,W-X),min(Y,H-Y))/${F},0,1)`;
+  // Edge limiter: even if watermark detection is noisy, never create a hard
+  // rectangular mask border. The background patch itself remains sharp.
+  const edgeExpr = `clip(min(min(X,W-X),min(Y,H-Y))/${F},0,1)`;
 
   const n = sides.length;
-  // [0:v] is split into (n + 1) streams: 1 base + n side samples.
-  const splitLabels = ["base", ...sides.map((_, i) => `s${i}`)];
-  let graph = `[0:v]split=${n + 1}[${splitLabels.join("][")}];`;
+  // [0:v] is split into base + original selected area + n side samples.
+  const splitLabels = ["base", "origsrc", ...sides.map((_, i) => `s${i}`)];
+  let graph = `[0:v]split=${n + 2}[${splitLabels.join("][")}];`;
+  graph += `[origsrc]crop=${pw}:${ph}:${px}:${py},scale=${pw}:${ph}:flags=lanczos[orig];`;
 
   // Crop + scale each sampled side into a same-size patch candidate.
   for (let i = 0; i < n; i++) {
