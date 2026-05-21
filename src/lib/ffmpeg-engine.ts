@@ -163,11 +163,29 @@ function buildFilter(
   const { x, y, width: w, height: h, fillMode } = region;
   const { width: W, height: H } = meta;
 
-  // Compute source crop region based on fill direction
+  // Margin (M) expands the patch beyond the marked region so its edges sit
+  // over real video pixels we can feather into. Feather (F) is the width of
+  // the soft alpha gradient that hides the seam.
+  const M = Math.max(6, Math.round(Math.min(w, h) * 0.08));
+  const F = M;
+
+  // Target patch placement (expanded by M on every side, clamped to frame).
+  let px = Math.floor(x) - M;
+  let py = Math.floor(y) - M;
+  let pw = Math.floor(w) + 2 * M;
+  let ph = Math.floor(h) + 2 * M;
+  if (px < 0) { pw += px; px = 0; }
+  if (py < 0) { ph += py; py = 0; }
+  if (px + pw > W) pw = W - px;
+  if (py + ph > H) ph = H - py;
+  pw = Math.max(4, pw - (pw % 2));
+  ph = Math.max(4, ph - (ph % 2));
+
+  // Compute source crop region based on fill direction (sized to expanded patch)
   let sx = 0;
   let sy = 0;
-  let sw = w;
-  let sh = h;
+  let sw = pw;
+  let sh = ph;
 
   const leftRoom = x;
   const rightRoom = W - (x + w);
@@ -184,64 +202,64 @@ function buildFilter(
   switch (mode) {
     case "horizontal": {
       if (leftRoom >= rightRoom && leftRoom > 4) {
-        sw = Math.max(4, Math.min(w, leftRoom));
+        sw = Math.max(4, Math.min(pw, leftRoom));
         sx = x - sw;
-        sy = y;
-        sh = h;
+        sy = py;
+        sh = ph;
       } else {
-        sw = Math.max(4, Math.min(w, rightRoom));
+        sw = Math.max(4, Math.min(pw, rightRoom));
         sx = x + w;
-        sy = y;
-        sh = h;
+        sy = py;
+        sh = ph;
       }
       break;
     }
     case "vertical": {
       if (topRoom >= bottomRoom && topRoom > 4) {
-        sh = Math.max(4, Math.min(h, topRoom));
+        sh = Math.max(4, Math.min(ph, topRoom));
         sy = y - sh;
-        sx = x;
-        sw = w;
+        sx = px;
+        sw = pw;
       } else {
-        sh = Math.max(4, Math.min(h, bottomRoom));
+        sh = Math.max(4, Math.min(ph, bottomRoom));
         sy = y + h;
-        sx = x;
-        sw = w;
+        sx = px;
+        sw = pw;
       }
       break;
     }
     case "edge": {
-      // 2px edge strip from nearest border, expanded
+      // Thin edge strip from nearest border, stretched across the patch
       if (leftRoom >= rightRoom && leftRoom > 2) {
-        sw = 2;
-        sx = Math.max(0, x - 2);
-        sy = y;
-        sh = h;
+        sw = 4;
+        sx = Math.max(0, x - 4);
+        sy = py;
+        sh = ph;
       } else {
-        sw = 2;
-        sx = Math.min(W - 2, x + w);
-        sy = y;
-        sh = h;
+        sw = 4;
+        sx = Math.min(W - 4, x + w);
+        sy = py;
+        sh = ph;
       }
       break;
     }
     case "clone": {
       // Mirror an adjacent block of equal size
-      if (rightRoom >= leftRoom && rightRoom >= w) {
+      if (rightRoom >= leftRoom && rightRoom >= pw) {
         sx = x + w;
-        sy = y;
-        sw = w;
-        sh = h;
-      } else if (leftRoom >= w) {
-        sx = Math.max(0, x - w);
-        sy = y;
-        sw = w;
-        sh = h;
+        sy = py;
+        sw = pw;
+        sh = ph;
+      } else if (leftRoom >= pw) {
+        sx = Math.max(0, x - pw);
+        sy = py;
+        sw = pw;
+        sh = ph;
       } else {
-        sw = Math.max(4, Math.min(w, Math.max(leftRoom, rightRoom)));
+        sw = Math.max(4, Math.min(pw, Math.max(leftRoom, rightRoom)));
         sx = leftRoom >= rightRoom ? Math.max(0, x - sw) : x + w;
-        sy = y;
-        sh = h;
+        sy = py;
+        sh = ph;
       }
       break;
     }
@@ -253,15 +271,25 @@ function buildFilter(
   sw = Math.max(2, Math.min(W - sx, Math.floor(sw)));
   sh = Math.max(2, Math.min(H - sy, Math.floor(sh)));
 
-  const px = Math.floor(x);
-  const py = Math.floor(y);
-  const pw = Math.floor(w);
-  const ph = Math.floor(h);
+  // Build a feathered alpha so the patch fades into the surrounding video.
+  // The alpha is 0 at the patch border and ramps to opaque over F pixels,
+  // making the rectangular seam invisible. A light gblur on the patch
+  // hides micro detail mismatch (grain/compression) between source crop
+  // and surrounding pixels.
+  //
+  // Use geq with X,Y in the patch's coordinate space (W=pw, H=ph for luma;
+  // half that for chroma — min(...) still ramps correctly so we apply the
+  // same expression to all planes).
+  const alphaExpr = `255*clip(min(min(X,W-X),min(Y,H-Y))/${F},0,1)`;
 
-  // Pad to even dimensions for libx264 + yuv420p compatibility.
-  // Bilinear is dramatically faster than lanczos and visually identical for
-  // the small neighbouring patch we stretch over the watermark.
-  return `[0:v]split=2[base][src];[src]crop=${sw}:${sh}:${sx}:${sy},scale=${pw}:${ph}:flags=bilinear[patch];[base][patch]overlay=${px}:${py}:format=auto,pad=ceil(iw/2)*2:ceil(ih/2)*2[outv]`;
+  return (
+    `[0:v]split=2[base][src];` +
+    `[src]crop=${sw}:${sh}:${sx}:${sy},scale=${pw}:${ph}:flags=lanczos,` +
+    `gblur=sigma=1.2,format=yuva420p,` +
+    `geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='${alphaExpr}'[patch];` +
+    `[base][patch]overlay=${px}:${py}:format=auto,` +
+    `pad=ceil(iw/2)*2:ceil(ih/2)*2[outv]`
+  );
 }
 
 export interface ProcessOptions {
