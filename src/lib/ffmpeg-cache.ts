@@ -3,16 +3,15 @@
  *
  * Important: FFmpeg's worker imports ffmpeg-core.js with importScripts().
  * Some browsers reject Blob URLs created from IndexedDB-cached scripts, even
- * when the MIME type is re-applied. To eliminate the recurring
- * "failed to import ffmpeg-core.js" error, the engine now loads versioned,
- * same-origin core files from /public and uses Cache Storage + a service
- * worker only for persistence/offline serving.
+ * when the MIME type is re-applied. The engine loads versioned CDN core files
+ * directly and mirrors them in Cache Storage so the app can publish without
+ * shipping the 30MB wasm binary as a static asset.
  */
 
 export const CORE_VERSION = "0.12.9";
 const CORE_CACHE_REVISION = "2";
 const CORE_CACHE_TOKEN = `${CORE_VERSION}-r${CORE_CACHE_REVISION}`;
-const CORE_PATH = `/ffmpeg-core/${CORE_VERSION}`;
+const CORE_PATH = `https://unpkg.com/@ffmpeg/core@${CORE_VERSION}/dist/esm`;
 const CACHE_NAME = `ffmpeg-core-${CORE_CACHE_TOKEN}`;
 const LEGACY_DB_NAME = "ffmpeg-core-cache";
 
@@ -120,24 +119,6 @@ async function deleteLegacyIDB() {
   });
 }
 
-async function registerCoreServiceWorker() {
-  if (!("serviceWorker" in navigator)) return;
-  try {
-    const registrations = await navigator.serviceWorker.getRegistrations();
-    await Promise.all(
-      registrations
-        .filter((reg) => new URL(reg.scope).pathname === "/ffmpeg-core/")
-        .map((reg) => reg.unregister()),
-    );
-    const reg = await navigator.serviceWorker.register("/ffmpeg-core-sw.js", {
-      scope: "/",
-    });
-    await reg.update().catch(() => undefined);
-  } catch {
-    // Static same-origin files still load; offline caching is best-effort.
-  }
-}
-
 function coreUrl(path: string) {
   return `${CORE_PATH}/${path}`;
 }
@@ -203,8 +184,8 @@ async function warmCoreCache(): Promise<void> {
 }
 
 /**
- * Returns stable same-origin URLs for the core js + wasm files. They are safe
- * for importScripts() and are cached for offline use by Cache Storage/SW.
+ * Returns stable versioned URLs for the core js + wasm files. They are safe for
+ * the FFmpeg worker and warmed into Cache Storage for repeat loads.
  */
 export async function getCoreURLs(): Promise<{
   coreURL: string;
@@ -213,7 +194,6 @@ export async function getCoreURLs(): Promise<{
   setState({ status: "checking", loaded: 0, total: 0, error: undefined });
   try {
     await deleteLegacyIDB();
-    await registerCoreServiceWorker();
     await warmCoreCache();
     return {
       coreURL: coreUrl("ffmpeg-core.js"),
