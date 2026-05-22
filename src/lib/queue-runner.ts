@@ -75,6 +75,7 @@ async function runJob(jobId: string) {
       preset: profile.preset,
       crf: profile.crf,
       audioMode: profile.audio,
+      blurStrength: s.settings.blurStrength ?? 0,
       onProgress: (p) => useAppStore.getState().updateJob(jobId, { progress: p }),
       onLog: (m) => {
         const short = jobId.slice(0, 8);
