@@ -38,6 +38,25 @@ export function SettingsDialog({
           </button>
         </div>
         <div className="max-h-[70vh] overflow-y-auto px-5 py-4 space-y-5">
+          <Field
+            label="Mask blur strength"
+            hint={
+              settings.blurStrength === 0
+                ? "0 · off — patch uses surrounding pixels as-is"
+                : `${settings.blurStrength}px · softens the reconstructed area for a seamless blend`
+            }
+          >
+            <input
+              type="range"
+              min={0}
+              max={30}
+              value={settings.blurStrength}
+              onChange={(e) =>
+                setSettings({ blurStrength: Number(e.target.value) })
+              }
+              className="w-full"
+            />
+          </Field>
           <Field label="Quality (CRF)" hint={`${settings.crf} · lower = better quality`}>
             <input
               type="range"
