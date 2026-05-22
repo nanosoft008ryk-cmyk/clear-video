@@ -101,6 +101,9 @@ export async function putExport(e: PersistedExport): Promise<void> {
 export async function deleteExport(id: string): Promise<void> {
   await tx(EXPORTS_STORE, "readwrite", (s) => s.delete(id));
 }
+export async function clearExports(): Promise<void> {
+  await tx(EXPORTS_STORE, "readwrite", (s) => s.clear());
+}
 export async function getAllExports(): Promise<PersistedExport[]> {
   const out = (await tx<PersistedExport[]>(EXPORTS_STORE, "readonly", (s) =>
     s.getAll(),
