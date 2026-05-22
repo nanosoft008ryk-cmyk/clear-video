@@ -105,6 +105,7 @@ function HomePage() {
   const removeExport = useAppStore((s) => s.removeExport);
   const clearJobs = useAppStore((s) => s.clearJobs);
   const clearVideos = useAppStore((s) => s.clearVideos);
+  const clearAllProcessed = useAppStore((s) => s.clearAllProcessed);
 
   const [activeId, setActiveId] = useState<string | null>(null);
   const [box, setBox] = useState({ x: 40, y: 40, width: 200, height: 80 });
@@ -634,6 +635,23 @@ function HomePage() {
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                     Clear queue
+                  </button>
+                )}
+                {(jobs.length > 0 || finishedExports.length > 0) && (
+                  <button
+                    onClick={() => {
+                      if (
+                        confirm(
+                          "Remove ALL processed videos and queued jobs? This also clears them from cache.",
+                        )
+                      )
+                        clearAllProcessed();
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-semibold text-muted-foreground hover:bg-destructive hover:text-destructive-foreground"
+                    title="Clear all processed videos and queue"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Clear all
                   </button>
                 )}
                 {finishedExports.length > 1 && (
