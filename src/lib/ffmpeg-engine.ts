@@ -150,19 +150,26 @@ export async function extractThumbnail(file: File): Promise<string> {
  * scales it to the watermark region, and overlays it.
  * No blur — pure pixel reconstruction via stretch-fill.
  */
-function buildFilter(region: WatermarkRegion, meta: VideoMeta): string {
+function buildFilter(
+  region: WatermarkRegion,
+  meta: VideoMeta,
+  blurStrength: number = 0,
+): string {
   const { x, y, width: w, height: h, fillMode } = region;
   const { width: W, height: H } = meta;
 
-  // Selective watermark reconstruction:
-  //   1. Keep the original pixels from the selected mask area as the base.
-  //   2. Build a clean background candidate from surrounding pixels.
-  //   3. Compare the original mask area with the clean candidate and only
-  //      overlay pixels that differ enough to look like watermark/text.
-  // This avoids replacing the whole rectangle with copied right-side content.
-  // This works with the stock ffmpeg.wasm filter set (no delogo needed).
-  const M = Math.max(6, Math.round(Math.min(w, h) * 0.08));
-  const F = Math.max(3, Math.min(10, Math.round(Math.min(w, h) * 0.035)));
+  // Reconstruct the masked region from surrounding pixels and feather the
+  // alpha so the edges blend invisibly into the surrounding video.
+  //   1. Sample every available side around the box.
+  //   2. Average them to a single same-size patch (no directional copy).
+  //   3. Optionally apply a soft blur for stronger camouflage.
+  //   4. Apply a wide feathered alpha so the rectangle has no visible border.
+  const blur = Math.max(0, Math.min(40, Math.round(blurStrength)));
+  // Expand the patch area so the feather has room to fade outside the box,
+  // hiding the seam well beyond the marked rectangle.
+  const M = Math.max(10, Math.round(Math.min(w, h) * 0.12) + Math.round(blur * 0.6));
+  // Feather width scales with blur strength — more blur, wider blend ring.
+  const F = Math.max(8, Math.round(Math.min(w, h) * 0.10) + Math.round(blur * 0.8));
 
   // Target patch placement (expanded by M on every side, clamped to frame).
   let px = Math.floor(x) - M;
@@ -248,15 +255,16 @@ function buildFilter(region: WatermarkRegion, meta: VideoMeta): string {
     c.sh = Math.max(2, Math.min(H - c.sy, Math.floor(c.sh)));
   }
 
-  // Edge limiter: even if watermark detection is noisy, never create a hard
-  // rectangular mask border. The background patch itself remains sharp.
-  const edgeExpr = `clip(min(min(X,W-X),min(Y,H-Y))/${F},0,1)`;
+  // Smooth radial-style feather: alpha = 1 deep inside the patch, fades to 0
+  // over F pixels at the edges. Uses a cosine ramp for an invisible falloff.
+  const alphaExpr =
+    `255*` +
+    `(0.5-0.5*cos(PI*clip(min(min(X,W-X),min(Y,H-Y))/${F},0,1)))`;
 
   const n = sides.length;
-  // [0:v] is split into base + original selected area + n side samples.
-  const splitLabels = ["base", "origsrc", ...sides.map((_, i) => `s${i}`)];
-  let graph = `[0:v]split=${n + 2}[${splitLabels.join("][")}];`;
-  graph += `[origsrc]crop=${pw}:${ph}:${px}:${py},scale=${pw}:${ph}:flags=lanczos[orig];`;
+  // [0:v] is split into base + n side samples.
+  const splitLabels = ["base", ...sides.map((_, i) => `s${i}`)];
+  let graph = `[0:v]split=${n + 1}[${splitLabels.join("][")}];`;
 
   // Crop + scale each sampled side into a same-size patch candidate.
   for (let i = 0; i < n; i++) {
@@ -277,12 +285,17 @@ function buildFilter(region: WatermarkRegion, meta: VideoMeta): string {
     graph += `[p0]copy[avg];`;
   }
 
+  // Optional soft blur on the patch to camouflage the watermark area.
+  const blurStep =
+    blur > 0
+      ? `,boxblur=luma_radius=${blur}:luma_power=1:chroma_radius=${Math.max(
+          1,
+          Math.round(blur / 2),
+        )}:chroma_power=1`
+      : "";
   graph +=
-    `[avg]split=2[clean][patchrgb];` +
-    `[orig][clean]blend=all_mode=difference,format=gray,` +
-    `geq=lum='255*clip((lum(X,Y)-14)/64,0,1)*${edgeExpr}'[mask];` +
-    `[patchrgb]format=rgb24[patchcolor];` +
-    `[patchcolor][mask]alphamerge,format=yuva420p[patch];` +
+    `[avg]format=yuva420p${blurStep},` +
+    `geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='${alphaExpr}'[patch];` +
     `[base][patch]overlay=${px}:${py}:format=auto,` +
     `pad=ceil(iw/2)*2:ceil(ih/2)*2[outv]`;
 
@@ -296,6 +309,7 @@ export interface ProcessOptions {
   preset?: "ultrafast" | "veryfast" | "fast" | "medium";
   crf?: number;
   audioMode?: "aac" | "copy" | "none";
+  blurStrength?: number;
   onProgress?: (ratio: number) => void;
   onLog?: (msg: string) => void;
   onCommand?: (cmd: string) => void;
@@ -317,7 +331,7 @@ export async function removeWatermark(file: File, opts: ProcessOptions): Promise
 
     try {
       await ff.writeFile(inputName, await fetchFile(file));
-      const filter = buildFilter(opts.region, opts.meta);
+      const filter = buildFilter(opts.region, opts.meta, opts.blurStrength ?? 0);
       // Default to stream-copying audio: re-encoding the whole audio track
       // is often the slowest part of the pipeline and is unnecessary when
       // the source codec is already MP4-compatible. The retry ladder
