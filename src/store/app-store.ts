@@ -9,6 +9,7 @@ import {
 import {
   clearVideos as idbClearVideos,
   deleteExport as idbDeleteExport,
+  clearExports as idbClearExports,
   deleteVideo as idbDeleteVideo,
   getAllExports as idbGetAllExports,
   getAllVideos as idbGetAllVideos,
@@ -82,6 +83,7 @@ interface Settings {
   crf: number;
   autoDelete: boolean;
   maxRetries: number;
+  blurStrength: number;
 }
 
 interface Store {
@@ -117,6 +119,7 @@ interface Store {
 
   addExport: (e: ExportItem, blob: Blob) => void;
   removeExport: (id: string) => void;
+  clearAllProcessed: () => void;
 
   setSettings: (patch: Partial<Settings>) => void;
   pushLog: (msg: string) => void;
@@ -144,6 +147,7 @@ export const useAppStore = create<Store>()(
         crf: 20,
         autoDelete: false,
         maxRetries: 2,
+        blurStrength: 0,
       },
       coreCache: getCacheState(),
       hydrated: false,
@@ -290,6 +294,20 @@ export const useAppStore = create<Store>()(
         get().exportBlobs.delete(id);
         set((s) => ({ exports: s.exports.filter((e) => e.id !== id) }));
         void idbDeleteExport(id).catch(() => undefined);
+      },
+      clearAllProcessed: () => {
+        const exportJobIds = new Set(get().exports.map((e) => e.jobId));
+        get().exportBlobs.clear();
+        set((s) => ({
+          exports: [],
+          // Drop processed jobs AND any queued/error/cancelled rows so the
+          // results list is fully cleared regardless of cache state.
+          jobs: s.jobs.filter(
+            (j) =>
+              j.status === "processing" && !exportJobIds.has(j.id),
+          ),
+        }));
+        void idbClearExports().catch(() => undefined);
       },
 
       setSettings: (patch) =>
