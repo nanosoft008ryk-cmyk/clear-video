@@ -1,14 +1,8 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
-  Outlet,
   Link,
-  createRootRouteWithContext,
+  createRootRoute,
   useRouter,
-  HeadContent,
-  Scripts,
 } from "@tanstack/react-router";
-
-import appCss from "../styles.css?url";
 import { AppLayout } from "@/components/AppLayout";
 
 function NotFoundComponent() {
@@ -68,66 +62,8 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   );
 }
 
-export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
-  head: () => ({
-    meta: [
-      { charSet: "utf-8" },
-      { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Bulk Video Watermark Remover" },
-      {
-        name: "description",
-        content:
-          "Remove watermarks from videos in bulk, locally in your browser, using FFmpeg-powered pixel reconstruction.",
-      },
-      { property: "og:title", content: "Bulk Video Watermark Remover" },
-      {
-        property: "og:description",
-        content:
-          "Pro-grade bulk watermark removal with FFmpeg WASM. No uploads, no APIs.",
-      },
-      { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary" },
-      { name: "twitter:site", content: "@Lovable" },
-      { name: "twitter:title", content: "Bulk Video Watermark Remover" },
-      { name: "description", content: "Bulk Video Watermark Remover is a desktop-first web application for removing watermarks from videos." },
-      { property: "og:description", content: "Bulk Video Watermark Remover is a desktop-first web application for removing watermarks from videos." },
-      { name: "twitter:description", content: "Bulk Video Watermark Remover is a desktop-first web application for removing watermarks from videos." },
-      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/fad0c2fd-0d3e-4cb2-adf1-a620af002e26/id-preview-5faafb8d--8f22f9c6-f4bc-4867-9cb3-caf19add4b3d.lovable.app-1779285892574.png" },
-      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/fad0c2fd-0d3e-4cb2-adf1-a620af002e26/id-preview-5faafb8d--8f22f9c6-f4bc-4867-9cb3-caf19add4b3d.lovable.app-1779285892574.png" },
-    ],
-    links: [
-      {
-        rel: "stylesheet",
-        href: appCss,
-      },
-    ],
-  }),
-  shellComponent: RootShell,
-  component: RootComponent,
+export const Route = createRootRoute({
+  component: AppLayout,
   notFoundComponent: NotFoundComponent,
   errorComponent: ErrorComponent,
 });
-
-function RootShell({ children }: { children: React.ReactNode }) {
-  return (
-    <html lang="en">
-      <head>
-        <HeadContent />
-      </head>
-      <body>
-        {children}
-        <Scripts />
-      </body>
-    </html>
-  );
-}
-
-function RootComponent() {
-  const { queryClient } = Route.useRouteContext();
-
-  return (
-    <QueryClientProvider client={queryClient}>
-      <AppLayout />
-    </QueryClientProvider>
-  );
-}
